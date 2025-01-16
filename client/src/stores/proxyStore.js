@@ -1,10 +1,14 @@
-import create from 'zustand';
+import { create } from 'zustand';
 
 const useProxyStore = create((set, get) => ({
   proxies: [],
 
   addProxy: (proxy) => set(state => ({
-    proxies: [...state.proxies, { ...proxy, id: Date.now() }]
+    proxies: [...state.proxies, { 
+      ...proxy, 
+      id: Date.now(),
+      sessions: [] 
+    }]
   })),
 
   addProxies: (newProxies) => set(state => ({
@@ -12,7 +16,8 @@ const useProxyStore = create((set, get) => ({
       ...state.proxies,
       ...newProxies.map((proxy, index) => ({ 
         ...proxy, 
-        id: Date.now() + index 
+        id: Date.now() + index,
+        sessions: []
       }))
     ]
   })),
@@ -47,7 +52,56 @@ const useProxyStore = create((set, get) => ({
         )
       }));
     }
-  }
+  },
+
+  // Session Management
+  addSession: (proxyId, sessionData) => set(state => ({
+    proxies: state.proxies.map(proxy => {
+      if (proxy.id === proxyId) {
+        return {
+          ...proxy,
+          sessions: [
+            ...proxy.sessions,
+            {
+              id: Date.now(),
+              ...sessionData,
+              status: 'active'
+            }
+          ]
+        };
+      }
+      return proxy;
+    })
+  })),
+
+  removeSession: (proxyId, sessionId) => set(state => ({
+    proxies: state.proxies.map(proxy => {
+      if (proxy.id === proxyId) {
+        return {
+          ...proxy,
+          sessions: proxy.sessions.filter(session => session.id !== sessionId)
+        };
+      }
+      return proxy;
+    })
+  })),
+
+  updateSession: (proxyId, sessionId, updates) => set(state => ({
+    proxies: state.proxies.map(proxy => {
+      if (proxy.id === proxyId) {
+        return {
+          ...proxy,
+          sessions: proxy.sessions.map(session => {
+            if (session.id === sessionId) {
+              return { ...session, ...updates };
+            }
+            return session;
+          })
+        };
+      }
+      return proxy;
+    })
+  }))
 }));
 
 export default useProxyStore;

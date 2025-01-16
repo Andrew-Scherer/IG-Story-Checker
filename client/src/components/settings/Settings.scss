@@ -45,4 +45,10 @@
       width: 200px;
     }
   }
+
+  &__help-text {
+    font-size: $font-size-sm;
+    color: $text-muted;
+    margin-top: $spacing-1;
+  }
 }

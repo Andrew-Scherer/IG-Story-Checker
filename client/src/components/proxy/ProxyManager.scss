@@ -1,84 +1,162 @@
-@import '../../styles/variables';
-
 .proxy-manager {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: $background-primary;
-  border-radius: $border-radius;
-  box-shadow: $shadow-sm;
-  overflow: hidden;
+  padding: 1rem;
 
-  &__header {
-    padding: $spacing-4;
-    border-bottom: 1px solid $border-light;
+  &__inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    padding: 1.5rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+  }
+
+  &__input-group {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: 0.5rem;
 
-    h2 {
-      margin: 0;
-      font-size: $font-size-lg;
-      font-weight: $font-weight-semibold;
-      color: $text-color;
+    label {
+      font-weight: 500;
+      color: #495057;
     }
+  }
+
+  &__textarea {
+    min-height: 200px;
+    padding: 0.75rem;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.875rem;
+    resize: vertical;
+    white-space: nowrap;
+
+    &--error {
+      border-color: #dc3545;
+    }
+
+    &:focus {
+      outline: none;
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    }
+  }
+
+  &__error {
+    color: #dc3545;
+    font-size: 0.875rem;
+  }
+
+  &__add-button {
+    grid-column: 1 / -1;
+    justify-self: end;
+    margin-top: 1rem;
+  }
+
+  &__list {
+    margin-top: 2rem;
+  }
+
+  &__controls {
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  &__empty {
+    text-align: center;
+    padding: 2rem;
+    color: #6c757d;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+  }
+
+  &__table {
+    width: 100%;
+    overflow-x: auto;
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background-color: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+    }
+
+    th, td {
+      padding: 0.75rem;
+      border-bottom: 1px solid #dee2e6;
+      text-align: left;
+    }
+
+    th {
+      background-color: #f8f9fa;
+      font-weight: 500;
+      color: #495057;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover {
+      background-color: #f8f9fa;
+    }
+  }
+
+  &__row--selected {
+    background-color: #e9ecef;
+  }
+
+  &__session-data {
+    font-family: monospace;
+    font-size: 0.875rem;
+    color: #495057;
+    word-break: break-all;
   }
 
   &__actions {
     display: flex;
-    gap: $spacing-2;
+    align-items: center;
+    gap: 0.5rem;
   }
 
-  &__add-form {
-    padding: $spacing-4;
-    border-bottom: 1px solid $border-light;
+  &__test-result {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+
+    &--success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+
+    &--error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+  }
+
+  &__confirmation {
+    padding: 1.5rem;
+    text-align: center;
+
+    h3 {
+      margin-bottom: 0.5rem;
+      color: #dc3545;
+    }
+
+    p {
+      margin-bottom: 1.5rem;
+      color: #6c757d;
+    }
+  }
+
+  &__confirmation-actions {
     display: flex;
-    gap: $spacing-2;
-  }
-
-  &__input {
-    flex: 1;
-    padding: $spacing-2 $spacing-3;
-    border: 1px solid $border-light;
-    border-radius: $border-radius;
-    font-size: $font-size-base;
-    font-family: monospace;
-
-    &:focus {
-      outline: none;
-      border-color: $primary-color;
-    }
-  }
-
-  &__table {
-    flex: 1;
-    overflow: hidden;
-  }
-
-  &__status {
-    padding: $spacing-1 $spacing-3;
-    border-radius: $border-radius;
-    font-size: $font-size-sm;
-    font-weight: $font-weight-medium;
-
-    &--untested {
-      background: rgba($text-muted, 0.1);
-      color: $text-muted;
-    }
-
-    &--testing {
-      background: rgba($warning-color, 0.1);
-      color: $warning-color;
-    }
-
-    &--working {
-      background: rgba($success-color, 0.1);
-      color: $success-color;
-    }
-
-    &--failed {
-      background: rgba($danger-color, 0.1);
-      color: $danger-color;
-    }
+    justify-content: center;
+    gap: 1rem;
   }
 }

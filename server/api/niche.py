@@ -1,153 +1,121 @@
 """
-Niche API Resources
-Handles niche management endpoints
+Niche API Routes
+Handles HTTP endpoints for niche management
 """
 
-from flask import request
-from flask_restful import Resource, reqparse, fields, marshal_with, abort
-from models import db, Niche, Profile, StoryResult
-from datetime import datetime
+from flask import Blueprint, request, jsonify
+from sqlalchemy.exc import IntegrityError
+from models.niche import Niche
+from models.base import db
 
-# Response fields
-niche_fields = {
-    'id': fields.String,
-    'name': fields.String,
-    'description': fields.String,
-    'order': fields.Integer,
-    'daily_story_target': fields.Integer,
-    'total_profiles': fields.Integer,
-    'active_profiles': fields.Integer,
-    'created_at': fields.DateTime(dt_format='iso8601'),
-    'updated_at': fields.DateTime(dt_format='iso8601')
-}
+# Create blueprint
+niche_bp = Blueprint('niche', __name__)
 
-# Request parsers
-niche_parser = reqparse.RequestParser()
-niche_parser.add_argument('name', type=str, required=True, help='Niche name is required')
-niche_parser.add_argument('description', type=str)
-niche_parser.add_argument('daily_story_target', type=int, default=20)
+@niche_bp.route('/api/niches', methods=['GET'])
+def list_niches():
+    """Get list of niches in display order"""
+    niches = Niche.get_ordered()
+    return jsonify([niche.to_dict() for niche in niches])
 
-reorder_parser = reqparse.RequestParser()
-reorder_parser.add_argument('order', type=list, required=True, location='json',
-                           help='List of niche IDs in desired order')
-
-class NicheListResource(Resource):
-    """Resource for managing niche collections"""
+@niche_bp.route('/api/niches/<niche_id>', methods=['GET'])
+def get_niche(niche_id):
+    """Get single niche by ID"""
+    niche = db.session.get(Niche, niche_id)
+    if not niche:
+        return jsonify({'error': 'Niche not found'}), 404
     
-    @marshal_with(niche_fields)
-    def get(self):
-        """Get all niches in display order"""
-        return Niche.query.order_by(Niche.order).all()
+    return jsonify(niche.to_dict())
 
-    @marshal_with(niche_fields)
-    def post(self):
-        """Create new niche"""
-        args = niche_parser.parse_args()
-        
-        # Check for duplicate name
-        if Niche.query.filter_by(name=args['name']).first():
-            abort(400, message=f"Niche with name '{args['name']}' already exists")
-        
+@niche_bp.route('/api/niches', methods=['POST'])
+def create_niche():
+    """Create new niche"""
+    data = request.get_json()
+    
+    # Validate required fields
+    if 'name' not in data:
+        return jsonify({'error': 'name is required'}), 400
+    
+    try:
         # Create niche
         niche = Niche(
-            name=args['name'],
-            description=args.get('description'),
-            daily_story_target=args['daily_story_target']
+            name=data['name'],
+            display_order=data.get('display_order')
         )
-        niche.save()
         
-        return niche, 201
+        # Save to database
+        db.session.add(niche)
+        db.session.commit()
+        
+        return jsonify(niche.to_dict()), 201
+        
+    except IntegrityError as e:
+        db.session.rollback()
+        if 'empty' in str(e):
+            return jsonify({'error': 'Niche name cannot be empty'}), 400
+        else:
+            return jsonify({'error': 'Niche already exists'}), 400
 
-class NicheResource(Resource):
-    """Resource for managing individual niches"""
+@niche_bp.route('/api/niches/<niche_id>', methods=['PUT'])
+def update_niche(niche_id):
+    """Update existing niche"""
+    niche = db.session.get(Niche, niche_id)
+    if not niche:
+        return jsonify({'error': 'Niche not found'}), 404
     
-    @marshal_with(niche_fields)
-    def get(self, niche_id):
-        """Get specific niche"""
-        niche = Niche.get_by_id(niche_id)
-        if not niche:
-            abort(404, message=f"Niche {niche_id} not found")
-        return niche
-
-    @marshal_with(niche_fields)
-    def put(self, niche_id):
-        """Update specific niche"""
-        niche = Niche.get_by_id(niche_id)
-        if not niche:
-            abort(404, message=f"Niche {niche_id} not found")
-        
-        args = niche_parser.parse_args()
-        
-        # Check for duplicate name if changing
-        if args['name'] != niche.name:
-            existing = Niche.query.filter_by(name=args['name']).first()
-            if existing:
-                abort(400, message=f"Niche with name '{args['name']}' already exists")
-        
+    data = request.get_json()
+    
+    try:
         # Update fields
-        niche.name = args['name']
-        niche.description = args.get('description')
-        niche.daily_story_target = args['daily_story_target']
-        niche.save()
+        if 'name' in data:
+            if not data['name'] or not data['name'].strip():
+                return jsonify({'error': 'Niche name cannot be empty'}), 400
+            niche.name = data['name']
+        if 'display_order' in data:
+            niche.display_order = data['display_order']
+            
+        db.session.commit()
+        return jsonify(niche.to_dict())
         
-        return niche
+    except IntegrityError as e:
+        db.session.rollback()
+        if 'empty' in str(e):
+            return jsonify({'error': 'Niche name cannot be empty'}), 400
+        else:
+            return jsonify({'error': 'Niche already exists'}), 400
 
-    def delete(self, niche_id):
-        """Delete specific niche"""
-        niche = Niche.get_by_id(niche_id)
-        if not niche:
-            abort(404, message=f"Niche {niche_id} not found")
-        
-        # Update profiles to remove niche
-        Profile.query.filter_by(niche_id=niche_id).update({'niche_id': None})
-        
-        niche.delete()
-        return '', 204
-
-    def get_profiles(self, niche_id):
-        """Get profiles for specific niche"""
-        niche = Niche.get_by_id(niche_id)
-        if not niche:
-            abort(404, message=f"Niche {niche_id} not found")
-        
-        profiles = Profile.query.filter_by(niche_id=niche_id).all()
-        return [p.to_dict() for p in profiles]
-
-    def get_stats(self, niche_id):
-        """Get statistics for specific niche"""
-        niche = Niche.get_by_id(niche_id)
-        if not niche:
-            abort(404, message=f"Niche {niche_id} not found")
-        
-        # Get current story count
-        current_stories = StoryResult.query.join(
-            Profile, StoryResult.profile_id == Profile.id
-        ).filter(
-            Profile.niche_id == niche_id,
-            StoryResult.expires_at > datetime.utcnow()
-        ).count()
-        
-        return {
-            'total_profiles': niche.total_profiles,
-            'active_profiles': niche.active_profiles,
-            'current_stories': current_stories
-        }
-
-class NicheReorderResource(Resource):
-    """Resource for reordering niches"""
+@niche_bp.route('/api/niches/<niche_id>', methods=['DELETE'])
+def delete_niche(niche_id):
+    """Delete niche"""
+    niche = db.session.get(Niche, niche_id)
+    if not niche:
+        return jsonify({'error': 'Niche not found'}), 404
     
-    @marshal_with(niche_fields)
-    def post(self):
-        """Reorder niches"""
-        args = reorder_parser.parse_args()
-        niche_ids = args['order']
-        
-        # Verify all niches exist
-        niches = Niche.query.filter(Niche.id.in_(niche_ids)).all()
-        if len(niches) != len(niche_ids):
-            abort(400, message="Invalid niche IDs in order list")
-        
-        # Update order
-        Niche.reorder(niche_ids)
-        
-        return Niche.query.order_by(Niche.order).all()
+    db.session.delete(niche)
+    db.session.commit()
+    
+    return '', 204
+
+@niche_bp.route('/api/niches/reorder', methods=['POST'])
+def reorder_niches():
+    """Reorder niches"""
+    data = request.get_json()
+    
+    if 'niche_ids' not in data:
+        return jsonify({'error': 'niche_ids is required'}), 400
+    
+    niche_ids = data['niche_ids']
+    
+    # Verify all niches exist
+    existing_ids = {n.id for n in Niche.query.all()}
+    if not all(nid in existing_ids for nid in niche_ids):
+        return jsonify({'error': 'Invalid niche ID'}), 400
+    
+    # Verify all niches included
+    if len(niche_ids) != len(existing_ids):
+        return jsonify({'error': 'All niches must be included'}), 400
+    
+    # Update order
+    Niche.reorder(niche_ids)
+    db.session.commit()
+    
+    return jsonify({'message': 'Niches reordered successfully'})

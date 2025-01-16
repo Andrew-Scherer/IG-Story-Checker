@@ -1,101 +1,64 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import PropTypes from 'prop-types';
-import classNames from 'classnames';
-import Input from '../common/Input';
 import Button from '../common/Button';
 import Modal from '../common/Modal';
 import './ProxyManager.scss';
 
-/**
- * @typedef {Object} Proxy
- * @property {number} id - Unique identifier
- * @property {string} host - IP address or hostname
- * @property {number} port - Port number
- * @property {string} [username] - Optional username for authentication
- * @property {string} [password] - Optional password for authentication
- */
-
-const ProxyManager = ({ proxies, onAdd, onRemove, onUpdate, onTest }) => {
-  const [newProxy, setNewProxy] = useState({
+const SettingsProxyManager = ({
+  proxies = [],
+  onAdd,
+  onRemove,
+  onUpdate,
+  onTest,
+  onAddSession,
+  onRemoveSession,
+  onUpdateSession
+}) => {
+  const [formData, setFormData] = useState({
     host: '',
     port: '',
-    username: '',
-    password: ''
+    username: ''
   });
   const [errors, setErrors] = useState({});
   const [selectedProxies, setSelectedProxies] = useState([]);
+  const [sessionData, setSessionData] = useState('');
+  const [sessionError, setSessionError] = useState('');
+  const [editingSession, setEditingSession] = useState(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [proxyToRemove, setProxyToRemove] = useState(null);
-  const [testResults, setTestResults] = useState({});
 
-  const validateProxy = useCallback((proxy) => {
+  const validateIP = (ip) => {
+    const pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    if (!pattern.test(ip)) return false;
+    return ip.split('.').every(num => parseInt(num) >= 0 && parseInt(num) <= 255);
+  };
+
+  const validatePort = (port) => {
+    const num = parseInt(port);
+    return num >= 1 && num <= 65535;
+  };
+
+  const validateForm = () => {
     const newErrors = {};
-    
-    // Validate IP address format
-    const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-    if (!ipRegex.test(proxy.host)) {
+    if (!validateIP(formData.host)) {
       newErrors.host = 'Invalid IP address';
     }
-    
-    // Validate port number
-    const port = parseInt(proxy.port, 10);
-    if (isNaN(port) || port < 1 || port > 65535) {
+    if (!validatePort(formData.port)) {
       newErrors.port = 'Port must be between 1 and 65535';
     }
-    
-    // Validate username format if provided
-    if (proxy.username && !/^[a-zA-Z0-9_-]+$/.test(proxy.username)) {
-      newErrors.username = 'Invalid username format';
-    }
-    
-    // Check for duplicate proxy
-    const isDuplicate = proxies.some(
-      p => p.host === proxy.host && p.port === parseInt(proxy.port, 10)
-    );
-    if (isDuplicate) {
-      newErrors.host = 'Proxy already exists';
-    }
-    
-    return newErrors;
-  }, [proxies]);
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setNewProxy(prev => ({ ...prev, [name]: value }));
-    setErrors(prev => ({ ...prev, [name]: '' }));
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const handleAdd = () => {
-    const validationErrors = validateProxy(newProxy);
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
-      return;
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (validateForm()) {
+      onAdd({
+        ...formData,
+        port: parseInt(formData.port)
+      });
+      setFormData({ host: '', port: '', username: '' });
     }
-
-    const payload = {
-      host: newProxy.host,
-      port: parseInt(newProxy.port, 10)
-    };
-
-    if (newProxy.username) {
-      payload.username = newProxy.username;
-    }
-    if (newProxy.password) {
-      payload.password = newProxy.password;
-    }
-
-    onAdd(payload);
-
-    setNewProxy({
-      host: '',
-      port: '',
-      username: '',
-      password: ''
-    });
-  };
-
-  const handleRemove = (proxy) => {
-    onRemove(proxy.id);
   };
 
   const handleConfirmRemove = (proxy) => {
@@ -103,150 +66,214 @@ const ProxyManager = ({ proxies, onAdd, onRemove, onUpdate, onTest }) => {
     setShowConfirmation(true);
   };
 
+  const handleBulkRemove = () => {
+    if (selectedProxies.length > 0) {
+      setProxyToRemove(null);
+      setShowConfirmation(true);
+    }
+  };
+
   const confirmRemove = () => {
     if (proxyToRemove) {
       onRemove(proxyToRemove.id);
-      setShowConfirmation(false);
-      setProxyToRemove(null);
-    }
-  };
-
-  const handleSelectProxy = (proxyId) => {
-    setSelectedProxies(prev => {
-      if (prev.includes(proxyId)) {
-        return prev.filter(id => id !== proxyId);
-      }
-      return [...prev, proxyId];
-    });
-  };
-
-  const handleRemoveSelected = () => {
-    if (selectedProxies.length > 0) {
+    } else if (selectedProxies.length > 0) {
       onRemove(selectedProxies);
       setSelectedProxies([]);
     }
+    setShowConfirmation(false);
+    setProxyToRemove(null);
   };
 
-  const handleTest = async (proxy) => {
-    try {
-      const result = await onTest(proxy);
-      setTestResults(prev => ({
-        ...prev,
-        [proxy.id]: result
-      }));
-    } catch (error) {
-      setTestResults(prev => ({
-        ...prev,
-        [proxy.id]: { success: false, error: error.message }
-      }));
+  const handleAddSession = (proxyId) => {
+    if (!sessionData) {
+      setSessionError('Session data is required');
+      return;
     }
+    onAddSession(proxyId, { session: sessionData });
+    setSessionData('');
+    setSessionError('');
+  };
+
+  const handleUpdateSession = (proxyId, sessionId) => {
+    if (!sessionData) {
+      setSessionError('Session data is required');
+      return;
+    }
+    onUpdateSession(proxyId, sessionId, { session: sessionData });
+    setEditingSession(null);
+    setSessionData('');
+    setSessionError('');
+  };
+
+  const toggleSessionStatus = (proxyId, sessionId, currentStatus) => {
+    onUpdateSession(proxyId, sessionId, {
+      status: currentStatus === 'active' ? 'disabled' : 'active'
+    });
   };
 
   return (
-    <div className="proxy-manager">
-      <div className="proxy-manager__add-form">
-        <Input
-          name="host"
-          label="Host"
-          value={newProxy.host}
-          onChange={handleInputChange}
-          error={errors.host}
-          placeholder="192.168.1.1"
-        />
-        <Input
-          name="port"
-          label="Port"
-          type="number"
-          value={newProxy.port}
-          onChange={handleInputChange}
-          error={errors.port}
-          placeholder="8080"
-        />
-        <Input
-          name="username"
-          label="Username (Optional)"
-          value={newProxy.username}
-          onChange={handleInputChange}
-          error={errors.username}
-        />
-        <Input
-          name="password"
-          label="Password (Optional)"
-          type="password"
-          value={newProxy.password}
-          onChange={handleInputChange}
-          error={errors.password}
-        />
-        <Button onClick={handleAdd}>Add</Button>
-      </div>
+    <div className="settings-proxy-manager">
+      <form onSubmit={handleSubmit} className="proxy-form">
+        <div className="form-group">
+          <label htmlFor="host">Host</label>
+          <input
+            id="host"
+            type="text"
+            value={formData.host}
+            onChange={e => setFormData(prev => ({ ...prev, host: e.target.value }))}
+          />
+          {errors.host && <span className="error">{errors.host}</span>}
+        </div>
 
-      <div className="proxy-manager__list">
-        {proxies.length === 0 ? (
-          <div className="proxy-manager__empty">No proxies configured</div>
-        ) : (
-          <>
-            <div className="proxy-manager__controls">
-              {selectedProxies.length > 0 && (
-                <Button variant="danger" onClick={handleRemoveSelected}>
-                  Remove Selected
-                </Button>
-              )}
+        <div className="form-group">
+          <label htmlFor="port">Port</label>
+          <input
+            id="port"
+            type="text"
+            value={formData.port}
+            onChange={e => setFormData(prev => ({ ...prev, port: e.target.value }))}
+          />
+          {errors.port && <span className="error">{errors.port}</span>}
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="username">Username (Optional)</label>
+          <input
+            id="username"
+            type="text"
+            value={formData.username}
+            onChange={e => setFormData(prev => ({ ...prev, username: e.target.value }))}
+          />
+        </div>
+
+        <Button type="submit">Add</Button>
+      </form>
+
+      {proxies.length === 0 ? (
+        <div className="empty-state">No proxies configured</div>
+      ) : (
+        <div className="proxy-list">
+          {selectedProxies.length > 0 && (
+            <div className="bulk-actions">
+              <Button variant="danger" onClick={handleBulkRemove}>
+                Remove Selected ({selectedProxies.length})
+              </Button>
             </div>
-            <div className="proxy-manager__items">
-              {proxies.map(proxy => (
-                <div
-                  key={proxy.id}
-                  className={classNames('proxy-manager__item', {
-                    'proxy-manager__item--selected': selectedProxies.includes(proxy.id)
-                  })}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedProxies.includes(proxy.id)}
-                    onChange={() => handleSelectProxy(proxy.id)}
-                  />
-                  <span className="proxy-manager__item-details">
-                    {proxy.host}:{proxy.port}
-                    {proxy.username && ` (${proxy.username})`}
-                  </span>
-                  <div className="proxy-manager__item-actions">
-                    {testResults[proxy.id] && (
-                      <span className={`proxy-manager__test-result proxy-manager__test-result--${testResults[proxy.id].success ? 'success' : 'error'}`}>
-                        {testResults[proxy.id].success 
-                          ? `${testResults[proxy.id].latency}ms`
-                          : testResults[proxy.id].error}
-                      </span>
-                    )}
-                    <Button
-                      size="small"
-                      onClick={() => handleTest(proxy)}
-                    >
-                      Test
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="small"
-                      onClick={() => handleConfirmRemove(proxy)}
-                    >
-                      Remove
-                    </Button>
-                  </div>
+          )}
+
+          {proxies.map(proxy => (
+            <div key={proxy.id} className="proxy-item">
+              <div className="proxy-header">
+                <input
+                  type="checkbox"
+                  checked={selectedProxies.includes(proxy.id)}
+                  onChange={() => {
+                    setSelectedProxies(prev => 
+                      prev.includes(proxy.id)
+                        ? prev.filter(id => id !== proxy.id)
+                        : [...prev, proxy.id]
+                    );
+                  }}
+                />
+                <span className="proxy-info">
+                  {proxy.host}:{proxy.port}
+                  {proxy.username && ` (${proxy.username})`}
+                </span>
+                <div className="proxy-actions">
+                  <Button onClick={() => onTest(proxy)}>Test</Button>
+                  <Button variant="danger" onClick={() => handleConfirmRemove(proxy)}>
+                    Remove
+                  </Button>
                 </div>
-              ))}
+              </div>
+
+              {proxy.latency && (
+                <div className="proxy-status">
+                  <span className="latency">{proxy.latency}ms</span>
+                </div>
+              )}
+
+              <div className="sessions">
+                <div className="session-form">
+                  <div className="form-group">
+                    <label htmlFor={`session-input-${proxy.id}`}>Session Data</label>
+                    <input
+                      id={`session-input-${proxy.id}`}
+                      type="text"
+                      placeholder="Enter session data"
+                      value={sessionData}
+                      onChange={e => setSessionData(e.target.value)}
+                    />
+                  </div>
+                  <Button onClick={() => handleAddSession(proxy.id)}>
+                    Add Session
+                  </Button>
+                  {sessionError && <span className="error">{sessionError}</span>}
+                </div>
+
+                {proxy.sessions?.map(session => (
+                  <div key={session.id} className="session-item">
+                    {editingSession === session.id ? (
+                      <>
+                        <input
+                          type="text"
+                          value={sessionData || session.session}
+                          onChange={e => setSessionData(e.target.value)}
+                        />
+                        <Button onClick={() => handleUpdateSession(proxy.id, session.id)}>
+                          Save
+                        </Button>
+                        <Button onClick={() => {
+                          setEditingSession(null);
+                          setSessionData('');
+                        }}>
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="session-data">{session.session}</span>
+                        <Button
+                          variant={session.status === 'active' ? 'success' : 'secondary'}
+                          onClick={() => toggleSessionStatus(proxy.id, session.id, session.status)}
+                        >
+                          {session.status}
+                        </Button>
+                        <Button onClick={() => {
+                          setEditingSession(session.id);
+                          setSessionData(session.session);
+                        }}>
+                          Edit
+                        </Button>
+                        <Button
+                          variant="danger"
+                          onClick={() => onRemoveSession(proxy.id, session.id)}
+                        >
+                          Remove
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
       <Modal
         title="Confirm Removal"
         isOpen={showConfirmation}
         onClose={() => setShowConfirmation(false)}
       >
-        <div className="proxy-manager__confirmation">
-          <h3>Are you sure?</h3>
-          <p>This action cannot be undone.</p>
-          <div className="proxy-manager__confirmation-actions">
+        <div className="confirmation-content">
+          <p>
+            {selectedProxies.length > 0 
+              ? `Are you sure you want to remove ${selectedProxies.length} selected proxies?`
+              : 'Are you sure you want to remove this proxy?'
+            }
+          </p>
+          <div className="confirmation-actions">
             <Button variant="danger" onClick={confirmRemove}>
               Confirm
             </Button>
@@ -260,18 +287,25 @@ const ProxyManager = ({ proxies, onAdd, onRemove, onUpdate, onTest }) => {
   );
 };
 
-ProxyManager.propTypes = {
+SettingsProxyManager.propTypes = {
   proxies: PropTypes.arrayOf(PropTypes.shape({
-    id: PropTypes.number.isRequired,
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
     host: PropTypes.string.isRequired,
     port: PropTypes.number.isRequired,
     username: PropTypes.string,
-    password: PropTypes.string
-  })).isRequired,
+    sessions: PropTypes.arrayOf(PropTypes.shape({
+      id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+      session: PropTypes.string.isRequired,
+      status: PropTypes.string.isRequired
+    }))
+  })),
   onAdd: PropTypes.func.isRequired,
   onRemove: PropTypes.func.isRequired,
   onUpdate: PropTypes.func.isRequired,
-  onTest: PropTypes.func
+  onTest: PropTypes.func.isRequired,
+  onAddSession: PropTypes.func.isRequired,
+  onRemoveSession: PropTypes.func.isRequired,
+  onUpdateSession: PropTypes.func.isRequired
 };
 
-export default ProxyManager;
+export default SettingsProxyManager;

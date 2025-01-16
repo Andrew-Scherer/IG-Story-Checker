@@ -25,8 +25,8 @@ class Batch(BaseModel):
     status = db.Column(db.String(20), default='pending', nullable=False)
     
     # Timing
-    start_time = db.Column(db.DateTime, nullable=True)
-    end_time = db.Column(db.DateTime, nullable=True)
+    start_time = db.Column(db.DateTime(timezone=True), nullable=True)
+    end_time = db.Column(db.DateTime(timezone=True), nullable=True)
     
     # Statistics
     total_profiles = db.Column(db.Integer, default=0)
@@ -61,14 +61,14 @@ class Batch(BaseModel):
         # TODO: Log failure reason
         self.save(session=session)
 
+    @classmethod
+    def get_by_id(cls, id):
+        """Get batch by ID"""
+        return db.session.get(cls, id)
+
     def update_stats(self, session=None):
         """Update batch statistics"""
         session = session or db.session
-        
-        # Get the session this instance is already attached to
-        instance_state = inspect(self)
-        if instance_state.session_id:
-            session = instance_state.session
 
         stats = session.query(
             db.func.count(BatchProfile.id),

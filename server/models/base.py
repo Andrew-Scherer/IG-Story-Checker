@@ -4,15 +4,12 @@ Provides common functionality for all models
 """
 
 from datetime import datetime, UTC
-from sqlalchemy import inspect, Column, DateTime, MetaData, Integer
-from sqlalchemy.orm import declarative_base, declared_attr
-from app import db
+from sqlalchemy import inspect, Column, DateTime, Integer
+from sqlalchemy.orm import declared_attr
+from extensions import db
 
-# Create shared metadata instance
-metadata = MetaData()
-
-# Create declarative base with shared metadata
-Base = declarative_base(metadata=metadata)
+# Use Flask-SQLAlchemy's Model as base
+Base = db.Model
 
 class SoftDeleteMixin:
     """Mixin for soft delete functionality"""
@@ -33,7 +30,7 @@ class SoftDeleteMixin:
         """Query including soft-deleted records"""
         return db.session.query(cls)
 
-class BaseModel:
+class BaseModel(Base):
     """Abstract base model class
     
     Provides common functionality for all models including:
@@ -41,6 +38,7 @@ class BaseModel:
     - Session-aware save/delete operations
     - Basic serialization
     """
+    __abstract__ = True  # Mark as abstract base class
     @declared_attr
     def __tablename__(cls):
         """Generate tablename from class name"""
@@ -120,7 +118,7 @@ class BaseModel:
             dict: Dictionary representation of model
         """
         return {
-            'id': str(self.id),
+            'id': self.id,  # Don't convert to string, let model handle ID format
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

@@ -215,13 +215,13 @@ Following Test-Driven Development principles, each component will begin with tes
    - Resource cleanup
 
 #### Proxy Model Update
-1. [ ] Test: `server/tests/models/test_proxy.py`
+1. [x] Test: `server/tests/models/test_proxy.py`
    - Test CRUD operations
    - Test session data handling
    - Test status management
    - Test validation rules
    - Test rate limit tracking
-2. [ ] Implementation: `server/models/proxy.py`
+2. [x] Implementation: `server/models/proxy.py`
    - Proxy configuration
    - Session cookie storage
    - Status management
@@ -229,25 +229,25 @@ Following Test-Driven Development principles, each component will begin with tes
    - Health metrics
 
 #### Story Checker
-1. [ ] Test: `server/tests/core/test_story_checker.py`
+1. [x] Test: `server/tests/core/test_story_checker.py`
    - Test Instagram API integration
    - Test story detection
    - Test rate limiting
    - Test error handling
    - Test session coordination
-2. [ ] Implementation: `server/core/story_checker.py`
+2. [x] Implementation: `server/core/story_checker.py`
    - Instagram API integration
    - Session coordination with SessionManager
    - Response parsing
    - Error categorization
 
 #### Proxy Manager
-1. [ ] Test: `server/tests/core/test_proxy_manager.py`
+1. [x] Test: `server/tests/core/test_proxy_manager.py`
    - Test proxy validation
    - Test rotation strategy
    - Test rate tracking
    - Test error handling
-2. [ ] Implementation: `server/core/proxy_manager.py`
+2. [x] Implementation: `server/core/proxy_manager.py`
    - Proxy pool management
    - Health monitoring
    - Load balancing
@@ -258,34 +258,40 @@ Following Test-Driven Development principles, each component will begin with tes
 ### 7.1 API Routes (`server/api/`)
 
 #### Niche API
-1. [ ] Test: `server/tests/api/test_niche.py`
+1. [x] Test: `server/tests/api/test_niche.py`
    - Test CRUD endpoints
    - Test validation
    - Test error responses
-2. [ ] Implementation: `server/api/niche.py`
+   - Test reordering functionality
+   - Test transaction handling
+2. [x] Implementation: `server/api/niche.py`
+   - RESTful endpoints for CRUD operations
+   - Input validation (empty names, duplicates)
+   - SQLAlchemy 2.0 style queries
+   - Proper transaction handling
+   - Error responses with appropriate status codes
+   - Support for reordering niches
 
 #### Profile API
-1. [ ] Test: `server/tests/api/test_profile.py`
+1. [x] Test: `server/tests/api/test_profile.py`
    - Test CRUD endpoints
    - Test bulk operations
    - Test filtering
-2. [ ] Implementation: `server/api/profile.py`
+2. [x] Implementation: `server/api/profile.py`
 
 #### Batch API
-1. [ ] Test: `server/tests/api/test_batch.py`
+1. [x] Test: `server/tests/api/test_batch.py`
    - Test batch creation
    - Test status updates
    - Test results retrieval
-2. [ ] Implementation: `server/api/batch.py`
+2. [x] Implementation: `server/api/batch.py`
 
 #### Settings API
-1. [ ] Test: `server/tests/api/test_settings.py`
+1. [x] Test: `server/tests/api/test_settings.py`
    - Test configuration updates
-   - Test proxy-session management
    - Test system settings
-2. [ ] Implementation: `server/api/settings.py`
+2. [x] Implementation: `server/api/settings.py`
    - Configuration endpoints
-   - Proxy-session management
    - System settings
 
 #### ProxyManager Component Update

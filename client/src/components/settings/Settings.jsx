@@ -48,6 +48,19 @@ function Settings() {
             min={1}
           />
         </div>
+        <div className="settings__field">
+          <label>Proxy-Session Hourly Limit</label>
+          <Input
+            type="number"
+            value={settings.proxyHourlyLimit}
+            onChange={(e) => handleChange('proxyHourlyLimit', parseInt(e.target.value))}
+            min={1}
+            placeholder="Default: 150"
+          />
+          <div className="settings__help-text">
+            Maximum requests per hour for each proxy-session pair
+          </div>
+        </div>
       </div>
     </div>
   );

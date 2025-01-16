@@ -3,10 +3,10 @@ Worker Manager
 Manages worker pool for story checking operations
 """
 
-from typing import Optional, List, Set, Dict, Tuple
+from typing import Optional, List, Dict
 from datetime import datetime, UTC
 from models.batch import BatchProfile
-from core.story_checker import StoryChecker, ProxySessionPair
+from core.story_checker import StoryChecker
 
 class Worker:
     """Individual worker that performs story checks"""
@@ -28,6 +28,8 @@ class Worker:
         self.error_count = 0
         self.is_disabled = False
         self.is_rate_limited = False
+        self.requests_this_hour = 0
+        self.hour_start = datetime.now(UTC)
     
     @property
     def success_rate(self) -> float:
@@ -39,6 +41,32 @@ class Worker:
         """Get total number of checks performed"""
         return self.story_checker.pair.total_checks
     
+    def check_rate_limit(self) -> bool:
+        """Check if worker has hit rate limit
+        
+        Returns:
+            True if rate limited, False otherwise
+        """
+        # Get settings
+        from models.settings import SystemSettings
+        settings = SystemSettings.get_settings()
+        hourly_limit = settings.proxy_hourly_limit
+        
+        # Reset counter if hour has passed
+        now = datetime.now(UTC)
+        if (now - self.hour_start).total_seconds() >= 3600:
+            self.requests_this_hour = 0
+            self.hour_start = now
+            self.is_rate_limited = False
+            return False
+            
+        # Check if we've hit the limit
+        if self.requests_this_hour >= hourly_limit:
+            self.is_rate_limited = True
+            return True
+            
+        return False
+
     async def check_story(self, batch_profile: BatchProfile) -> bool:
         """Check story for a profile
         
@@ -48,7 +76,7 @@ class Worker:
         Returns:
             True if check succeeded, False if failed
         """
-        if self.is_disabled or self.is_rate_limited:
+        if self.is_disabled or self.is_rate_limited or self.check_rate_limit():
             return False
             
         self.current_profile = batch_profile
@@ -61,8 +89,9 @@ class Worker:
             # Update batch profile
             batch_profile.complete(has_story=has_story)
             
-            # Reset error count on success
+            # Reset error count on success and increment request counter
             self.error_count = 0
+            self.requests_this_hour += 1
             return True
             
         except Exception as e:
@@ -121,8 +150,9 @@ class WorkerPool:
         self.max_workers = max_workers
         self.active_workers: List[Worker] = []
         self.available_workers: List[Worker] = []
-        # Track proxy-session pairs and their performance
-        self.proxy_sessions: Dict[str, List[Tuple[str, str]]] = {}  # proxy -> [(session, success_rate)]
+        # Track proxy-session pairs
+        self.proxy_sessions: Dict[str, str] = {}  # proxy -> session_cookie
+        self.last_used: Dict[str, datetime] = {}  # proxy -> last used time
     
     def create_worker(self, proxy: str, session_cookie: str) -> Worker:
         """Create new worker
@@ -151,7 +181,7 @@ class WorkerPool:
             self.available_workers.remove(worker)
     
     def get_worker(self) -> Optional[Worker]:
-        """Get available worker
+        """Get available worker using round-robin rotation
         
         Returns:
             Worker if available, None if at capacity
@@ -159,24 +189,22 @@ class WorkerPool:
         # Check if we're at max capacity
         if len(self.active_workers) >= self.max_workers:
             return None
+            
+        # Get least recently used proxy
+        available_proxies = [
+            proxy for proxy in self.proxy_sessions.keys()
+            if proxy not in [w.proxy for w in self.active_workers]
+        ]
         
-        # Get best performing proxy-session pair
-        best_proxy = None
-        best_session = None
-        best_rate = 0.0
-        
-        for proxy, sessions in self.proxy_sessions.items():
-            for session, rate in sessions:
-                if rate > best_rate:
-                    best_proxy = proxy
-                    best_session = session
-                    best_rate = rate
-        
-        if not best_proxy or not best_session:
+        if not available_proxies:
             return None
             
-        # Create worker with best pair
-        worker = self.create_worker(best_proxy, best_session)
+        # Sort by last used time (None first, then oldest to newest)
+        available_proxies.sort(key=lambda p: self.last_used.get(p, datetime.min.replace(tzinfo=UTC)))
+        next_proxy = available_proxies[0]
+        
+        # Create worker with this proxy-session pair
+        worker = self.create_worker(next_proxy, self.proxy_sessions[next_proxy])
         
         # Remove from available and add to active
         if worker in self.available_workers:
@@ -195,14 +223,8 @@ class WorkerPool:
         if worker in self.active_workers:
             self.active_workers.remove(worker)
         
-        # Update proxy-session performance metrics
-        if worker.proxy in self.proxy_sessions:
-            sessions = self.proxy_sessions[worker.proxy]
-            # Update success rate for this session
-            for i, (session, _) in enumerate(sessions):
-                if session == worker.session_cookie:
-                    sessions[i] = (session, worker.success_rate)
-                    break
+        # Update last used time
+        self.last_used[worker.proxy] = datetime.now(UTC)
         
         # Clear from available workers if disabled or rate limited
         if worker.is_disabled or worker.is_rate_limited:
@@ -220,10 +242,7 @@ class WorkerPool:
             proxy: Proxy URL
             session_cookie: Session cookie
         """
-        if proxy not in self.proxy_sessions:
-            self.proxy_sessions[proxy] = []
-        # Add with initial 100% success rate
-        self.proxy_sessions[proxy].append((session_cookie, 1.0))
+        self.proxy_sessions[proxy] = session_cookie
     
     def remove_proxy_session(self, proxy: str, session_cookie: str) -> None:
         """Remove proxy-session pair from pool
@@ -233,9 +252,6 @@ class WorkerPool:
             session_cookie: Session cookie
         """
         if proxy in self.proxy_sessions:
-            self.proxy_sessions[proxy] = [
-                (session, rate) for session, rate in self.proxy_sessions[proxy]
-                if session != session_cookie
-            ]
-            if not self.proxy_sessions[proxy]:
-                del self.proxy_sessions[proxy]
+            del self.proxy_sessions[proxy]
+            if proxy in self.last_used:
+                del self.last_used[proxy]

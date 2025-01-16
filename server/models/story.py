@@ -4,7 +4,7 @@ Tracks detected Instagram stories and handles expiration
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from .base import BaseModel, db
 
 class StoryResult(BaseModel):
@@ -19,8 +19,8 @@ class StoryResult(BaseModel):
     batch_id = db.Column(db.String(36), db.ForeignKey('batches.id'), nullable=False)
     
     # Detection information
-    detected_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    expires_at = db.Column(db.DateTime, nullable=False)
+    detected_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
     
     # Optional metadata
     screenshot_url = db.Column(db.String(255), nullable=True)
@@ -34,18 +34,19 @@ class StoryResult(BaseModel):
         """Initialize a new story result"""
         self.profile_id = profile_id
         self.batch_id = batch_id
-        self.detected_at = datetime.utcnow()
+        self.detected_at = datetime.now(UTC)
         self.expires_at = self.detected_at + timedelta(hours=retention_hours)
 
     @property
     def is_expired(self):
         """Check if story has expired"""
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
     @classmethod
     def get_active(cls, niche_id=None):
         """Get active (non-expired) story results"""
-        query = cls.query.filter(cls.expires_at > datetime.utcnow())
+        now = datetime.now(UTC)
+        query = cls.query.filter(cls.expires_at > now)
         
         if niche_id:
             query = query.join(cls.profile).filter_by(niche_id=niche_id)
@@ -55,7 +56,8 @@ class StoryResult(BaseModel):
     @classmethod
     def cleanup_expired(cls):
         """Remove expired story results"""
-        expired = cls.query.filter(cls.expires_at <= datetime.utcnow())
+        now = datetime.now(UTC)
+        expired = cls.query.filter(cls.expires_at <= now)
         count = expired.count()
         expired.delete()
         db.session.commit()
@@ -64,17 +66,18 @@ class StoryResult(BaseModel):
     @classmethod
     def get_stats_for_niche(cls, niche_id):
         """Get story statistics for a niche"""
+        now = datetime.now(UTC)
         return db.session.query(
             db.func.count(cls.id).label('total'),
             db.func.count(db.distinct(cls.profile_id)).label('unique_profiles')
         ).join(cls.profile).filter(
             cls.profile.has(niche_id=niche_id),
-            cls.expires_at > datetime.utcnow()
+            cls.expires_at > now
         ).first()
 
     def extend_expiration(self, hours=24):
         """Extend story expiration time"""
-        self.expires_at = datetime.utcnow() + timedelta(hours=hours)
+        self.expires_at = datetime.now(UTC) + timedelta(hours=hours)
         self.save()
 
     def add_metadata(self, data):

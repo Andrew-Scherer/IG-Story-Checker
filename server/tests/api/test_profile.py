@@ -1,198 +1,281 @@
 """
-Profile API Tests
-Tests for profile management endpoints
+Test Profile API
+Tests API endpoints for profile management
 """
 
 import pytest
-from flask import json
-from models import Profile
+import json
+from datetime import datetime, timedelta, UTC
 
-def test_get_profiles_empty(client):
-    """Should return empty list when no profiles exist"""
+import logging
+logging.basicConfig()
+logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
+def test_list_profiles(client, db_session):
+    """Test GET /api/profiles"""
+    # Create test profiles
+    profiles = [
+        {'username': 'user1', 'status': 'active'},
+        {'username': 'user2', 'status': 'active'},
+        {'username': 'user3', 'status': 'suspended'}
+    ]
+    
+    for profile in profiles:
+        response = client.post('/api/profiles', json=profile)
+        assert response.status_code == 201
+    
+    # Test basic listing
     response = client.get('/api/profiles')
     assert response.status_code == 200
-    assert response.json == []
-
-def test_create_profile(client, create_niche):
-    """Should create new profile with valid data"""
-    # Create niche first
-    niche = create_niche('Fitness')
     
-    data = {
-        'username': 'testuser',
-        'niche_id': niche.id
+    data = json.loads(response.data)
+    assert len(data) == 3
+    
+    # Verify response structure
+    profile = data[0]
+    assert set(profile.keys()) == {
+        'id', 'username', 'url', 'niche_id', 'status',
+        'total_checks', 'total_detections', 'detection_rate',
+        'last_checked', 'last_detected',
+        'created_at', 'updated_at', 'deleted_at'
     }
     
-    response = client.post('/api/profiles', json=data)
+    # Test filtering by status
+    response = client.get('/api/profiles?status=active')
+    data = json.loads(response.data)
+    assert len(data) == 2
+    assert all(p['status'] == 'active' for p in data)
+    
+    # Test filtering by niche
+    response = client.post('/api/niches', json={'name': 'Test Niche'})
+    print("\nNiche creation response:", response.data)
+    niche_id = json.loads(response.data)['id']
+    
+    response = client.post('/api/profiles', json={
+        'username': 'niche_user',
+        'niche_id': niche_id
+    })
+    print("\nProfile creation response:", response.data)
     assert response.status_code == 201
     
-    profile = response.json
-    assert profile['username'] == data['username']
-    assert profile['niche_id'] == data['niche_id']
-    assert profile['status'] == 'active'
-    assert 'id' in profile
-    assert 'url' in profile
-    assert 'created_at' in profile
-
-def test_create_profile_duplicate_username(client):
-    """Should reject duplicate usernames"""
-    data = {'username': 'testuser'}
+    # Verify profile was created with correct niche_id
+    created_profile = json.loads(response.data)
+    print("\nCreated profile:", created_profile)
+    assert created_profile['niche_id'] == niche_id
     
-    # Create first profile
-    client.post('/api/profiles', json=data)
-    
-    # Try to create duplicate
-    response = client.post('/api/profiles', json=data)
-    assert response.status_code == 400
-    assert 'already exists' in response.json['message'].lower()
+    response = client.get(f'/api/profiles?niche_id={niche_id}')
+    print("\nProfile filter response:", response.data)
+    data = json.loads(response.data)
+    assert len(data) == 1
+    assert data[0]['username'] == 'niche_user'
 
-def test_create_profile_invalid_niche(client):
-    """Should reject non-existent niche ID"""
-    data = {
+def test_create_profile(client, db_session):
+    """Test POST /api/profiles"""
+    # Test valid creation
+    response = client.post('/api/profiles', json={
         'username': 'testuser',
-        'niche_id': 'nonexistent'
-    }
+        'url': 'https://instagram.com/testuser',
+        'status': 'active'
+    })
+    assert response.status_code == 201
     
-    response = client.post('/api/profiles', json=data)
+    data = json.loads(response.data)
+    assert data['username'] == 'testuser'
+    assert data['status'] == 'active'
+    assert 'id' in data
+    
+    # Test duplicate username
+    response = client.post('/api/profiles', json={
+        'username': 'testuser'
+    })
     assert response.status_code == 400
-    assert 'invalid niche' in response.json['message'].lower()
-
-def test_get_profile(client, create_profile):
-    """Should return specific profile by ID"""
-    # Create profile
-    profile = create_profile('testuser')
+    assert b'already exists' in response.data
     
-    response = client.get(f'/api/profiles/{profile.id}')
-    assert response.status_code == 200
-    assert response.json['id'] == profile.id
-    assert response.json['username'] == profile.username
+    # Test empty username
+    response = client.post('/api/profiles', json={
+        'username': ''
+    })
+    assert response.status_code == 400
+    assert b'cannot be empty' in response.data
+    
+    # Test missing username
+    response = client.post('/api/profiles', json={
+        'url': 'https://instagram.com/missing'
+    })
+    assert response.status_code == 400
+    assert b'username is required' in response.data
+    
+    # Test invalid status
+    response = client.post('/api/profiles', json={
+        'username': 'statustest',
+        'status': 'invalid'
+    })
+    assert response.status_code == 400
+    assert b'Invalid status' in response.data
 
-def test_get_profile_not_found(client):
-    """Should return 404 for non-existent profile"""
-    response = client.get('/api/profiles/nonexistent')
+def test_bulk_create_profiles(client, db_session):
+    """Test POST /api/profiles/bulk"""
+    profiles = [
+        {'username': 'bulk1'},
+        {'username': 'bulk2'},
+        {'username': 'bulk3'}
+    ]
+    
+    response = client.post('/api/profiles/bulk', json={
+        'profiles': profiles
+    })
+    assert response.status_code == 201
+    
+    data = json.loads(response.data)
+    assert len(data['created']) == 3
+    assert len(data['errors']) == 0
+    
+    # Test with some invalid profiles
+    profiles = [
+        {'username': 'bulk4'},
+        {'username': 'bulk1'},  # Duplicate
+        {'username': ''},  # Empty
+        {'username': 'bulk5'}
+    ]
+    
+    response = client.post('/api/profiles/bulk', json={
+        'profiles': profiles
+    })
+    assert response.status_code == 207  # Partial success
+    
+    data = json.loads(response.data)
+    assert len(data['created']) == 2  # bulk4 and bulk5
+    assert len(data['errors']) == 2  # bulk1 and empty
+
+def test_get_profile(client, db_session):
+    """Test GET /api/profiles/<id>"""
+    # Create test profile
+    response = client.post('/api/profiles', json={
+        'username': 'gettest'
+    })
+    profile_id = json.loads(response.data)['id']
+    
+    # Get profile by ID
+    response = client.get(f'/api/profiles/{profile_id}')
+    assert response.status_code == 200
+    
+    data = json.loads(response.data)
+    assert data['username'] == 'gettest'
+    
+    # Test invalid ID
+    response = client.get('/api/profiles/999999')
     assert response.status_code == 404
 
-def test_update_profile(client, create_niche, create_profile):
-    """Should update existing profile"""
-    # Create profile and new niche
-    profile = create_profile('testuser')
-    niche = create_niche('Fitness')
+def test_update_profile(client, db_session):
+    """Test PUT /api/profiles/<id>"""
+    # Create test profile
+    response = client.post('/api/profiles', json={
+        'username': 'updatetest'
+    })
+    profile_id = json.loads(response.data)['id']
     
-    update_data = {
-        'niche_id': niche.id,
-        'status': 'deleted'
-    }
-    
-    response = client.put(f'/api/profiles/{profile.id}', json=update_data)
+    # Update profile
+    response = client.put(f'/api/profiles/{profile_id}', json={
+        'url': 'https://instagram.com/updated',
+        'status': 'suspended'
+    })
     assert response.status_code == 200
-    assert response.json['niche_id'] == niche.id
-    assert response.json['status'] == 'deleted'
-
-def test_delete_profile(client, create_profile):
-    """Should delete existing profile"""
-    profile = create_profile('testuser')
     
-    response = client.delete(f'/api/profiles/{profile.id}')
+    data = json.loads(response.data)
+    assert data['url'] == 'https://instagram.com/updated'
+    assert data['status'] == 'suspended'
+    
+    # Test invalid status
+    response = client.put(f'/api/profiles/{profile_id}', json={
+        'status': 'invalid'
+    })
+    assert response.status_code == 400
+    assert b'Invalid status' in response.data
+    
+    # Test invalid ID
+    response = client.put('/api/profiles/999999', json={
+        'status': 'active'
+    })
+    assert response.status_code == 404
+
+def test_delete_profile(client, db_session):
+    """Test DELETE /api/profiles/<id>"""
+    # Create test profile
+    response = client.post('/api/profiles', json={
+        'username': 'deletetest'
+    })
+    profile_id = json.loads(response.data)['id']
+    
+    # Delete profile (soft delete)
+    response = client.delete(f'/api/profiles/{profile_id}')
     assert response.status_code == 204
     
-    # Verify deletion
-    get_response = client.get(f'/api/profiles/{profile.id}')
-    assert get_response.status_code == 404
-
-def test_bulk_delete_profiles(client, create_profile):
-    """Should delete multiple profiles"""
-    # Create profiles
-    profiles = [
-        create_profile('user1'),
-        create_profile('user2'),
-        create_profile('user3')
-    ]
-    profile_ids = [p.id for p in profiles]
-    
-    response = client.post('/api/profiles/bulk-delete', json={'ids': profile_ids})
+    # Verify soft deletion
+    response = client.get(f'/api/profiles/{profile_id}')
     assert response.status_code == 200
-    assert response.json['deleted'] == len(profile_ids)
+    data = json.loads(response.data)
+    assert data['status'] == 'deleted'
+    assert data['deleted_at'] is not None
     
-    # Verify all deleted
-    for profile_id in profile_ids:
-        get_response = client.get(f'/api/profiles/{profile_id}')
-        assert get_response.status_code == 404
+    # Test invalid ID
+    response = client.delete('/api/profiles/999999')
+    assert response.status_code == 404
 
-def test_bulk_update_niche(client, create_niche, create_profile):
-    """Should update niche for multiple profiles"""
-    # Create profiles and new niche
-    profiles = [
-        create_profile('user1'),
-        create_profile('user2')
-    ]
-    niche = create_niche('Fitness')
-    profile_ids = [p.id for p in profiles]
+def test_reactivate_profile(client, db_session):
+    """Test POST /api/profiles/<id>/reactivate"""
+    # Create and delete test profile
+    response = client.post('/api/profiles', json={
+        'username': 'reactivatetest'
+    })
+    profile_id = json.loads(response.data)['id']
     
-    response = client.post('/api/profiles/bulk-update', json={
-        'ids': profile_ids,
-        'niche_id': niche.id
+    client.delete(f'/api/profiles/{profile_id}')
+    
+    # Reactivate profile
+    response = client.post(f'/api/profiles/{profile_id}/reactivate')
+    assert response.status_code == 200
+    
+    data = json.loads(response.data)
+    assert data['status'] == 'active'
+    assert data['deleted_at'] is None
+    
+    # Test invalid ID
+    response = client.post('/api/profiles/999999/reactivate')
+    assert response.status_code == 404
+
+def test_record_check(client, db_session):
+    """Test POST /api/profiles/<id>/record_check"""
+    # Create test profile
+    response = client.post('/api/profiles', json={
+        'username': 'checktest'
+    })
+    profile_id = json.loads(response.data)['id']
+    
+    # Record successful check
+    response = client.post(f'/api/profiles/{profile_id}/record_check', json={
+        'story_detected': True
     })
     assert response.status_code == 200
-    assert response.json['updated'] == len(profile_ids)
     
-    # Verify updates
-    for profile_id in profile_ids:
-        get_response = client.get(f'/api/profiles/{profile_id}')
-        assert get_response.json['niche_id'] == niche.id
-
-def test_import_profiles(client, create_niche):
-    """Should import profiles from username list"""
-    niche = create_niche('Fitness')
-    usernames = ['user1', 'user2', 'user3']
+    data = json.loads(response.data)
+    assert data['total_checks'] == 1
+    assert data['total_detections'] == 1
+    assert data['last_checked'] is not None
+    assert data['last_detected'] is not None
     
-    response = client.post('/api/profiles/import', json={
-        'usernames': usernames,
-        'niche_id': niche.id
+    # Record unsuccessful check
+    response = client.post(f'/api/profiles/{profile_id}/record_check', json={
+        'story_detected': False
     })
     assert response.status_code == 200
-    assert response.json['imported'] == len(usernames)
-    assert response.json['skipped'] == 0
     
-    # Verify all imported
-    for username in usernames:
-        profile = Profile.query.filter_by(username=username).first()
-        assert profile is not None
-        assert profile.niche_id == niche.id
-
-def test_import_profiles_skip_duplicates(client, create_profile):
-    """Should skip existing usernames during import"""
-    # Create existing profile
-    existing = create_profile('existing_user')
+    data = json.loads(response.data)
+    assert data['total_checks'] == 2
+    assert data['total_detections'] == 1
+    assert data['detection_rate'] == 50.0
     
-    usernames = ['existing_user', 'new_user']
-    
-    response = client.post('/api/profiles/import', json={
-        'usernames': usernames
+    # Test invalid ID
+    response = client.post('/api/profiles/999999/record_check', json={
+        'story_detected': True
     })
-    assert response.status_code == 200
-    assert response.json['imported'] == 1  # Only new_user
-    assert response.json['skipped'] == 1   # existing_user
-
-def test_filter_profiles(client, create_niche, create_profile):
-    """Should filter profiles by criteria"""
-    # Create test data
-    niche = create_niche('Fitness')
-    create_profile('user1', niche_id=niche.id)
-    create_profile('user2', niche_id=niche.id)
-    create_profile('user3')  # No niche
-    
-    # Test niche filter
-    response = client.get(f'/api/profiles?niche_id={niche.id}')
-    assert response.status_code == 200
-    assert len(response.json) == 2
-    
-    # Test status filter
-    response = client.get('/api/profiles?status=active')
-    assert response.status_code == 200
-    assert len(response.json) == 3
-    
-    # Test search
-    response = client.get('/api/profiles?search=user1')
-    assert response.status_code == 200
-    assert len(response.json) == 1
-    assert response.json[0]['username'] == 'user1'
+    assert response.status_code == 404

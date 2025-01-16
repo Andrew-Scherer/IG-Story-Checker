@@ -68,13 +68,14 @@ class Profile(BaseModel):
         Index('idx_profile_last_checked', 'last_checked'),
     )
 
-    def __init__(self, username, url=None, niche=None, status='active'):
+    def __init__(self, username, url=None, niche=None, niche_id=None, status='active'):
         """Initialize a new Profile instance.
         
         Args:
             username (str): The Instagram username
             url (str, optional): The profile URL
             niche (Niche, optional): The niche this profile belongs to
+            niche_id (str, optional): The ID of the niche this profile belongs to
             status (str, optional): Initial status, defaults to 'active'
             
         Raises:
@@ -90,7 +91,10 @@ class Profile(BaseModel):
         self.id = str(uuid.uuid4())
         self.username = username
         self.url = url
-        self.niche = niche
+        if niche is not None:
+            self.niche = niche
+        elif niche_id is not None:
+            self.niche_id = niche_id
         self.status = status
         self.total_checks = 0
         self.total_detections = 0

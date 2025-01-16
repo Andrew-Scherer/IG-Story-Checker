@@ -4,7 +4,7 @@ Tests for batch processing endpoints
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from models import Batch, BatchProfile, StoryResult
 
 def test_get_batches_empty(client):
@@ -173,7 +173,7 @@ def test_cleanup_old_batches(client, create_niche, create_batch):
     # Create old completed batch
     old_batch = create_batch(niche.id)
     old_batch.complete()
-    old_batch.end_time = datetime.utcnow() - timedelta(days=8)
+    old_batch.end_time = datetime.now(UTC) - timedelta(days=8)
     old_batch.save()
     
     # Create recent completed batch

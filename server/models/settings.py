@@ -120,6 +120,7 @@ class SystemSettings(BaseModel):
     # Proxy settings
     proxy_test_timeout = db.Column(db.Integer, default=10)  # seconds
     proxy_max_failures = db.Column(db.Integer, default=3)
+    proxy_hourly_limit = db.Column(db.Integer, default=150)  # requests per hour per proxy-session
     
     # Notification settings
     notifications_enabled = db.Column(db.Boolean, default=True)
@@ -128,7 +129,7 @@ class SystemSettings(BaseModel):
     @classmethod
     def get_settings(cls):
         """Get or create system settings"""
-        settings = cls.query.get(1)
+        settings = db.session.get(cls, 1)
         if not settings:
             settings = cls()
             db.session.add(settings)
@@ -153,6 +154,7 @@ class SystemSettings(BaseModel):
             'min_trigger_interval': self.min_trigger_interval,
             'proxy_test_timeout': self.proxy_test_timeout,
             'proxy_max_failures': self.proxy_max_failures,
+            'proxy_hourly_limit': self.proxy_hourly_limit,
             'notifications_enabled': self.notifications_enabled,
             'notification_email': self.notification_email
         }

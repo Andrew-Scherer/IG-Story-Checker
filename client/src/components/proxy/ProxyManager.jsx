@@ -1,152 +1,275 @@
-import React, { useState, useRef } from 'react';
-import useProxyStore from '../../stores/proxyStore';
+import React, { useState, useCallback } from 'react';
+import classNames from 'classnames';
 import Button from '../common/Button';
-import Table from '../common/Table';
+import Modal from '../common/Modal';
+import useProxyStore from '../../stores/proxyStore';
 import './ProxyManager.scss';
 
-function ProxyManager() {
+const ProxyManager = () => {
   const { 
     proxies,
     addProxy,
     removeProxy,
     testProxy,
-    addProxies
+    addSession,
+    updateSession
   } = useProxyStore();
 
   const [proxyInput, setProxyInput] = useState('');
-  const [selectedIds, setSelectedIds] = useState([]);
-  const fileInputRef = useRef(null);
+  const [sessionInput, setSessionInput] = useState('');
+  const [errors, setErrors] = useState({});
+  const [selectedProxies, setSelectedProxies] = useState([]);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [proxyToRemove, setProxyToRemove] = useState(null);
+  const [testResults, setTestResults] = useState({});
 
-  const handleAddProxy = () => {
-    if (!proxyInput.trim()) return;
+  const validateProxies = useCallback((proxyLines) => {
+    const errors = {};
+    const proxyRegex = /^(\d{1,3}\.){3}\d{1,3}:\d+:[^:]+:[^:]+$/;
+    
+    proxyLines.forEach((line, index) => {
+      if (!proxyRegex.test(line)) {
+        errors[index] = 'Invalid format. Use: ip:port:username:password';
+      }
+    });
+    
+    return errors;
+  }, []);
 
-    const [ip, port, user, pass] = proxyInput.split(':');
-    if (!ip || !port || !user || !pass) {
-      alert('Invalid proxy format. Use: ip:port:user:pass');
+  const handleAdd = () => {
+    const proxyLines = proxyInput.trim().split('\n').filter(line => line.trim());
+    const sessionLines = sessionInput.trim().split('\n').filter(line => line.trim());
+
+    const cleanProxyLines = proxyLines.filter(line => line.trim());
+    const cleanSessionLines = sessionLines.filter(line => line.trim());
+
+    if (cleanProxyLines.length === 0) {
+      setErrors({ proxy: 'Please enter at least one proxy' });
       return;
     }
 
-    addProxy({
-      host: ip,
-      port,
-      username: user,
-      password: pass,
-      status: 'untested'
+    if (cleanSessionLines.length !== cleanProxyLines.length) {
+      setErrors({ session: 'Number of sessions must match number of proxies' });
+      return;
+    }
+
+    const proxyErrors = validateProxies(proxyLines);
+    if (Object.keys(proxyErrors).length > 0) {
+      setErrors({ proxy: 'Invalid proxy format found', ...proxyErrors });
+      return;
+    }
+
+    proxyLines.forEach((proxyLine, index) => {
+      const [host, port, username, password] = proxyLine.split(':');
+      const proxy = {
+        host,
+        port: parseInt(port, 10),
+        username,
+        password
+      };
+
+      const proxyId = Date.now() + index;
+      addProxy({ ...proxy, id: proxyId });
+      addSession(proxyId, { session: sessionLines[index], status: 'active' });
     });
+
     setProxyInput('');
+    setSessionInput('');
+    setErrors({});
   };
 
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  const handleConfirmRemove = (proxy) => {
+    setProxyToRemove(proxy);
+    setShowConfirmation(true);
+  };
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target.result;
-      const lines = content.split('\n').filter(line => line.trim());
-      
-      const newProxies = lines.map(line => {
-        const [ip, port, user, pass] = line.trim().split(':');
-        return {
-          host: ip,
-          port,
-          username: user,
-          password: pass,
-          status: 'untested'
-        };
-      }).filter(proxy => proxy.host && proxy.port && proxy.username && proxy.password);
+  const confirmRemove = () => {
+    if (proxyToRemove) {
+      removeProxy(proxyToRemove.id);
+      setShowConfirmation(false);
+      setProxyToRemove(null);
+    }
+  };
 
-      if (newProxies.length > 0) {
-        addProxies(newProxies);
-      } else {
-        alert('No valid proxies found in file. Use format: ip:port:user:pass');
+  const handleSelectProxy = (proxyId) => {
+    setSelectedProxies(prev => {
+      if (prev.includes(proxyId)) {
+        return prev.filter(id => id !== proxyId);
       }
-    };
-    reader.readAsText(file);
-    event.target.value = null; // Reset file input
+      return [...prev, proxyId];
+    });
   };
 
-  const handleTestSelected = async () => {
-    for (const id of selectedIds) {
-      await testProxy(id);
+  const handleRemoveSelected = () => {
+    if (selectedProxies.length > 0) {
+      removeProxy(selectedProxies);
+      setSelectedProxies([]);
     }
   };
 
-  const handleDeleteSelected = () => {
-    removeProxy(selectedIds);
-    setSelectedIds([]);
+  const handleTest = async (proxy) => {
+    try {
+      const result = await testProxy(proxy.id);
+      setTestResults(prev => ({
+        ...prev,
+        [proxy.id]: result
+      }));
+    } catch (error) {
+      setTestResults(prev => ({
+        ...prev,
+        [proxy.id]: { success: false, error: error.message }
+      }));
+    }
   };
 
-  const columns = [
-    {
-      key: 'proxy',
-      title: 'Proxy',
-      sortable: true,
-      render: (proxy) => `${proxy.host}:${proxy.port}:${proxy.username}:${proxy.password}`
-    },
-    {
-      key: 'status',
-      title: 'Status',
-      sortable: true,
-      render: (proxy) => (
-        <span className={`proxy-manager__status proxy-manager__status--${proxy.status}`}>
-          {proxy.status}
-        </span>
-      )
-    }
-  ];
+  const handleToggleSessionStatus = (proxyId, sessionId, currentStatus) => {
+    updateSession(proxyId, sessionId, {
+      status: currentStatus === 'active' ? 'disabled' : 'active'
+    });
+  };
 
   return (
     <div className="proxy-manager">
-      <div className="proxy-manager__header">
-        <h2>Proxy Management</h2>
-        <div className="proxy-manager__actions">
-          <input
-            type="file"
-            accept=".txt"
-            onChange={handleFileUpload}
-            ref={fileInputRef}
-            style={{ display: 'none' }}
+      <div className="proxy-manager__inputs">
+        <div className="proxy-manager__input-group">
+          <label>Proxies (ip:port:username:password)</label>
+          <textarea
+            value={proxyInput}
+            onChange={(e) => setProxyInput(e.target.value)}
+            placeholder="165.231.24.193:4444:andres:Andres2025&#10;154.16.20.193:4444:andres:Andres2025&#10;107.175.90.211:4444:andres:Andres2025"
+            className={classNames('proxy-manager__textarea', {
+              'proxy-manager__textarea--error': errors.proxy
+            })}
           />
-          <Button onClick={() => fileInputRef.current.click()}>
-            Import from File
-          </Button>
-          {selectedIds.length > 0 && (
-            <>
-              <Button onClick={handleTestSelected}>
-                Test Selected ({selectedIds.length})
-              </Button>
-              <Button variant="danger" onClick={handleDeleteSelected}>
-                Delete Selected ({selectedIds.length})
-              </Button>
-            </>
-          )}
+          {errors.proxy && <div className="proxy-manager__error">{errors.proxy}</div>}
         </div>
+
+        <div className="proxy-manager__input-group">
+          <label>Sessions (one per line)</label>
+          <textarea
+            value={sessionInput}
+            onChange={(e) => setSessionInput(e.target.value)}
+            placeholder="session_data_1&#10;session_data_2&#10;session_data_3"
+            className={classNames('proxy-manager__textarea', {
+              'proxy-manager__textarea--error': errors.session
+            })}
+          />
+          {errors.session && <div className="proxy-manager__error">{errors.session}</div>}
+        </div>
+
+        <Button onClick={handleAdd} className="proxy-manager__add-button">
+          Add Proxy-Session Pairs
+        </Button>
       </div>
 
-      <div className="proxy-manager__add-form">
-        <input
-          type="text"
-          value={proxyInput}
-          onChange={(e) => setProxyInput(e.target.value)}
-          placeholder="ip:port:user:pass"
-          className="proxy-manager__input"
-        />
-        <Button onClick={handleAddProxy}>Add Proxy</Button>
+      <div className="proxy-manager__list">
+        {proxies.length === 0 ? (
+          <div className="proxy-manager__empty">No proxies configured</div>
+        ) : (
+          <>
+            <div className="proxy-manager__controls">
+              {selectedProxies.length > 0 && (
+                <Button variant="danger" onClick={handleRemoveSelected}>
+                  Remove Selected ({selectedProxies.length})
+                </Button>
+              )}
+            </div>
+            <div className="proxy-manager__table">
+              <table>
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>Proxy</th>
+                    <th>Session</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {proxies.map(proxy => (
+                    <tr key={proxy.id} className={classNames({
+                      'proxy-manager__row--selected': selectedProxies.includes(proxy.id)
+                    })}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedProxies.includes(proxy.id)}
+                          onChange={() => handleSelectProxy(proxy.id)}
+                        />
+                      </td>
+                      <td>{`${proxy.host}:${proxy.port}:${proxy.username}:${proxy.password}`}</td>
+                      <td>
+                        {proxy.sessions?.map(session => (
+                          <div key={session.id} className="proxy-manager__session-data">
+                            {session.session}
+                          </div>
+                        ))}
+                      </td>
+                      <td>
+                        {proxy.sessions?.map(session => (
+                          <Button
+                            key={session.id}
+                            variant={session.status === 'active' ? 'success' : 'secondary'}
+                            size="small"
+                            onClick={() => handleToggleSessionStatus(proxy.id, session.id, session.status)}
+                          >
+                            {session.status}
+                          </Button>
+                        ))}
+                      </td>
+                      <td>
+                        <div className="proxy-manager__actions">
+                          {testResults[proxy.id] && (
+                            <span className={`proxy-manager__test-result proxy-manager__test-result--${testResults[proxy.id].success ? 'success' : 'error'}`}>
+                              {testResults[proxy.id].success 
+                                ? `${testResults[proxy.id].latency}ms`
+                                : testResults[proxy.id].error}
+                            </span>
+                          )}
+                          <Button
+                            size="small"
+                            onClick={() => handleTest(proxy)}
+                          >
+                            Test
+                          </Button>
+                          <Button
+                            variant="danger"
+                            size="small"
+                            onClick={() => handleConfirmRemove(proxy)}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="proxy-manager__table">
-        <Table
-          data={proxies}
-          columns={columns}
-          pageSize={500}
-          selectable={true}
-          selectedRows={selectedIds}
-          onSelectionChange={setSelectedIds}
-        />
-      </div>
+      <Modal
+        title="Confirm Removal"
+        isOpen={showConfirmation}
+        onClose={() => setShowConfirmation(false)}
+      >
+        <div className="proxy-manager__confirmation">
+          <h3>Are you sure?</h3>
+          <p>This action cannot be undone.</p>
+          <div className="proxy-manager__confirmation-actions">
+            <Button variant="danger" onClick={confirmRemove}>
+              Confirm
+            </Button>
+            <Button onClick={() => setShowConfirmation(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
-}
+};
 
 export default ProxyManager;

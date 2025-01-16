@@ -93,7 +93,7 @@ def upgrade():
     op.create_table(
         'proxies',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('host', sa.String(255), nullable=False),
+        sa.Column('ip', sa.String(255), nullable=False),
         sa.Column('port', sa.Integer, nullable=False),
         sa.Column('username', sa.String(255)),
         sa.Column('password', sa.String(255)),
@@ -145,8 +145,24 @@ def upgrade():
     op.create_index('ix_proxies_is_active', 'proxies', ['is_active'])
     op.create_index('ix_proxies_last_used', 'proxies', ['last_used'])
 
+    # Create sessions table
+    op.create_table(
+        'sessions',
+        sa.Column('id', sa.Integer, primary_key=True),
+        sa.Column('session', sa.String, unique=True, nullable=False),
+        sa.Column('status', sa.Enum('active', 'disabled', name='session_status'), nullable=False, default='active'),
+        sa.Column('proxy_id', sa.Integer, sa.ForeignKey('proxies.id')),
+        sa.Column('created_at', sa.DateTime(timezone=True), default=datetime.utcnow),
+        sa.Column('updated_at', sa.DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    )
+
+    # Create indexes for sessions
+    op.create_index('ix_sessions_status', 'sessions', ['status'])
+    op.create_index('ix_sessions_proxy_id', 'sessions', ['proxy_id'])
+
 def downgrade():
     # Drop tables in reverse order
+    op.drop_table('sessions')
     op.drop_table('system_settings')
     op.drop_table('proxies')
     op.drop_table('story_results')
