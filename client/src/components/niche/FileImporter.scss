@@ -1,0 +1,38 @@
+@import '../../styles/variables';
+
+.file-importer {
+  padding: $spacing-4;
+  border-bottom: 1px solid $border-light;
+  background: $background-primary;
+
+  &__input-group {
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-2;
+  }
+
+  &__input {
+    padding: $spacing-2;
+    border: 1px solid $border-light;
+    border-radius: $border-radius;
+    background: white;
+    cursor: pointer;
+    font-size: $font-size-sm;
+    color: $text-color;
+
+    &:hover {
+      border-color: $primary-color;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  &__error {
+    color: $danger-color;
+    font-size: $font-size-sm;
+    margin-top: $spacing-1;
+  }
+}

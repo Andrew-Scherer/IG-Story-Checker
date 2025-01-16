@@ -1,0 +1,108 @@
+@import '../../styles/variables';
+
+.niche-feed {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: $background-primary;
+  border-radius: $border-radius;
+  box-shadow: $shadow-sm;
+
+  &__header {
+    padding: $spacing-4;
+    border-bottom: 1px solid $border-light;
+  }
+
+  &__add-form {
+    padding: $spacing-4;
+    border-bottom: 1px solid $border-light;
+    display: flex;
+    gap: $spacing-2;
+  }
+
+  &__input {
+    flex: 1;
+    padding: $spacing-2;
+    border: 1px solid $border-light;
+    border-radius: $border-radius;
+    font-size: $font-size-base;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-color;
+    }
+  }
+
+  &__list {
+    flex: 1;
+    overflow-y: auto;
+    padding: $spacing-2 0;
+  }
+
+  &__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: $spacing-3 $spacing-4;
+    border-bottom: 1px solid $border-light;
+    cursor: pointer;
+    user-select: none;
+    transition: $transition-base;
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    &:hover {
+      background: $background-tertiary;
+    }
+
+    &--selected {
+      background: rgba($primary-color, 0.1);
+
+      &:hover {
+        background: rgba($primary-color, 0.15);
+      }
+    }
+
+    &--dragging {
+      opacity: 0.5;
+      box-shadow: $shadow-md;
+    }
+  }
+
+  &__content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-right: $spacing-4;
+    min-width: 0;
+  }
+
+  &__name {
+    border: none;
+    background: none;
+    font-size: $font-size-base;
+    color: $text-color;
+    padding: $spacing-1;
+    border-radius: $border-radius;
+    flex: 1;
+    min-width: 0;
+
+    &:hover, &:focus {
+      background: rgba($primary-color, 0.05);
+      outline: none;
+    }
+  }
+
+  &__counter {
+    padding: $spacing-1 $spacing-3;
+    background: rgba($primary-color, 0.1);
+    border-radius: $border-radius;
+    font-size: $font-size-sm;
+    color: $primary-color;
+    font-weight: $font-weight-medium;
+    white-space: nowrap;
+  }
+}

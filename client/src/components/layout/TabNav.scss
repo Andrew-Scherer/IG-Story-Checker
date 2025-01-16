@@ -1,0 +1,52 @@
+@import '../../styles/variables';
+
+.tab-nav {
+  display: flex;
+  gap: $spacing-2;
+  border-bottom: $border-width solid $border-light;
+  margin: 0 (-$spacing-6);
+  padding: 0 $spacing-6;
+
+  &__item {
+    padding: $spacing-3 $spacing-4;
+    font-size: $font-size-base;
+    font-weight: $font-weight-medium;
+    color: $text-secondary;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: $transition-base;
+    position: relative;
+    margin-bottom: -$border-width;
+
+    &:hover {
+      color: $text-color;
+    }
+
+    &:focus {
+      outline: none;
+      color: $primary-color;
+    }
+
+    &--active {
+      color: $primary-color;
+      border-bottom-color: $primary-color;
+      font-weight: $font-weight-semibold;
+    }
+  }
+}
+
+// Responsive styles
+@media (max-width: $breakpoint-md) {
+  .tab-nav {
+    margin: 0 (-$spacing-4);
+    padding: 0 $spacing-4;
+    gap: $spacing-1;
+
+    &__item {
+      padding: $spacing-2 $spacing-3;
+      font-size: $font-size-sm;
+    }
+  }
+}

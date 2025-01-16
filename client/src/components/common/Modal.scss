@@ -1,0 +1,135 @@
+@import '../../styles/variables';
+
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: $z-index-modal-backdrop;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal {
+  background-color: $background-primary;
+  border-radius: $card-border-radius;
+  box-shadow: $shadow-lg;
+  max-height: calc(100vh - $spacing-8);
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.3s ease-out;
+  position: relative;
+  margin: $spacing-4;
+
+  // Sizes
+  &--small {
+    width: $modal-width-sm;
+  }
+
+  &--medium {
+    width: $modal-width-md;
+  }
+
+  &--large {
+    width: $modal-width-lg;
+  }
+
+  &__header {
+    padding: $spacing-4 $spacing-6;
+    border-bottom: $border-width solid $border-light;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: $font-size-xl;
+    font-weight: $font-weight-semibold;
+    color: $text-color;
+  }
+
+  &__close {
+    padding: $spacing-2;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: $text-muted;
+    font-size: $font-size-sm;
+    transition: $transition-base;
+
+    &:hover {
+      color: $text-color;
+    }
+
+    &:focus {
+      outline: none;
+      color: $primary-color;
+    }
+  }
+
+  &__content {
+    padding: $spacing-6;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  &__footer {
+    padding: $spacing-4 $spacing-6;
+    border-top: $border-width solid $border-light;
+    display: flex;
+    justify-content: flex-end;
+    gap: $spacing-3;
+    flex-shrink: 0;
+  }
+}
+
+// Animations
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+// Responsive styles
+@media (max-width: $breakpoint-md) {
+  .modal {
+    &--small,
+    &--medium,
+    &--large {
+      width: calc(100vw - $spacing-8);
+      max-width: 100%;
+    }
+
+    &__header {
+      padding: $spacing-3 $spacing-4;
+    }
+
+    &__content {
+      padding: $spacing-4;
+    }
+
+    &__footer {
+      padding: $spacing-3 $spacing-4;
+    }
+  }
+}

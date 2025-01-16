@@ -1,0 +1,131 @@
+@import '../../styles/variables';
+
+.batch-results {
+  display: flex;
+  height: 100%;
+  gap: $spacing-6;
+  padding: $spacing-6;
+
+  &__sidebar {
+    width: 300px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-4;
+  }
+
+  &__niches {
+    background: $background-primary;
+    border-radius: $border-radius;
+    box-shadow: $shadow-sm;
+    overflow: auto;
+  }
+
+  &__niche {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: $spacing-3 $spacing-4;
+    border-bottom: 1px solid $border-light;
+    cursor: pointer;
+    transition: $transition-base;
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    &:hover {
+      background: $background-tertiary;
+    }
+
+    &--selected {
+      background: rgba($primary-color, 0.1);
+
+      &:hover {
+        background: rgba($primary-color, 0.15);
+      }
+
+      .batch-results__niche-name {
+        color: $primary-color;
+        font-weight: $font-weight-semibold;
+      }
+
+      .batch-results__niche-count {
+        background: $primary-color;
+        color: white;
+      }
+    }
+  }
+
+  &__niche-name {
+    font-size: $font-size-base;
+    color: $text-color;
+  }
+
+  &__niche-count {
+    padding: $spacing-1 $spacing-3;
+    background: rgba($primary-color, 0.1);
+    border-radius: $border-radius;
+    font-size: $font-size-sm;
+    color: $primary-color;
+    font-weight: $font-weight-medium;
+  }
+
+  &__content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-4;
+  }
+
+  &__batch {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: $spacing-4;
+    background: $background-primary;
+    border-radius: $border-radius;
+    box-shadow: $shadow-sm;
+  }
+
+  &__batch-info {
+    font-size: $font-size-base;
+    color: $text-color;
+  }
+
+  &__detections {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: $background-primary;
+    border-radius: $border-radius;
+    box-shadow: $shadow-sm;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: $spacing-4;
+    border-bottom: 1px solid $border-light;
+
+    h2 {
+      margin: 0;
+      font-size: $font-size-lg;
+      font-weight: $font-weight-semibold;
+      color: $text-color;
+    }
+  }
+
+  &__empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: $spacing-8;
+    color: $text-muted;
+    font-style: italic;
+  }
+}

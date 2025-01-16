@@ -1,0 +1,57 @@
+@import '../../styles/variables';
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  height: 100vh;
+  background-color: $background-secondary;
+
+  &__header {
+    background-color: $background-primary;
+    box-shadow: $shadow-sm;
+    padding: $spacing-4 $spacing-6;
+    position: sticky;
+    top: 0;
+    z-index: $z-index-sticky;
+    flex: 0 0 auto;
+  }
+
+  &__title {
+    margin: 0 0 $spacing-4;
+    font-size: $font-size-2xl;
+    font-weight: $font-weight-bold;
+    color: $text-color;
+  }
+
+  &__content {
+    flex: 1;
+    padding: $spacing-6;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+    min-height: 0; // Important for Firefox
+    display: flex;
+    flex-direction: column;
+    overflow: auto; // Allow content to scroll
+    position: relative; // For proper stacking
+  }
+}
+
+// Responsive styles
+@media (max-width: $breakpoint-md) {
+  .app-layout {
+    &__header {
+      padding: $spacing-3 $spacing-4;
+    }
+
+    &__title {
+      font-size: $font-size-xl;
+      margin-bottom: $spacing-3;
+    }
+
+    &__content {
+      padding: $spacing-4;
+    }
+  }
+}

@@ -1,0 +1,124 @@
+@import '../../styles/variables';
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input {
+  width: 100%;
+  padding: $input-padding-y $input-padding-x;
+  border: $border-width solid $input-border-color;
+  border-radius: $input-border-radius;
+  font-size: $font-size-sm;
+  line-height: $line-height-base;
+  color: $text-color;
+  background-color: $white;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: darken($input-border-color, 10%);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: $input-focus-border-color;
+    box-shadow: $input-focus-box-shadow;
+  }
+
+  // Sizes
+  &--small {
+    padding: calc($input-padding-y * 0.75) calc($input-padding-x * 0.75);
+    font-size: $font-size-xs;
+  }
+
+  &--medium {
+    padding: $input-padding-y $input-padding-x;
+    font-size: $font-size-sm;
+  }
+
+  &--large {
+    padding: calc($input-padding-y * 1.25) calc($input-padding-x * 1.25);
+    font-size: $font-size-base;
+  }
+
+  // States
+  &--error {
+    border-color: $danger-color;
+
+    &:hover,
+    &:focus {
+      border-color: darken($danger-color, 10%);
+      box-shadow: 0 0 0 2px rgba($danger-color, 0.1);
+    }
+  }
+
+  &--disabled {
+    background-color: $background-tertiary;
+    border-color: $border-light;
+    color: $text-muted;
+    cursor: not-allowed;
+
+    &:hover {
+      border-color: $border-light;
+    }
+  }
+
+  // With prefix/suffix
+  &--with-prefix {
+    padding-left: 2.5rem;
+  }
+
+  &--with-suffix {
+    padding-right: 2.5rem;
+  }
+}
+
+.input__prefix,
+.input__suffix {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 $input-padding-x;
+  color: $text-muted;
+  pointer-events: none;
+}
+
+.input__prefix {
+  left: 0;
+}
+
+.input__suffix {
+  right: 0;
+}
+
+.input__error-message {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1.5rem;
+  font-size: 0.75rem;
+  color: $danger-color;
+  margin-top: 0.25rem;
+}
+
+// Responsive styles
+@media (max-width: $breakpoint-md) {
+  .input {
+    &--small {
+      padding: calc($input-padding-y * 0.75) calc($input-padding-x * 0.75);
+    }
+
+    &--medium {
+      padding: calc($input-padding-y * 0.875) calc($input-padding-x * 0.875);
+    }
+
+    &--large {
+      padding: $input-padding-y $input-padding-x;
+    }
+  }
+}

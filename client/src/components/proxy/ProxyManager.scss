@@ -1,0 +1,84 @@
+@import '../../styles/variables';
+
+.proxy-manager {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: $background-primary;
+  border-radius: $border-radius;
+  box-shadow: $shadow-sm;
+  overflow: hidden;
+
+  &__header {
+    padding: $spacing-4;
+    border-bottom: 1px solid $border-light;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    h2 {
+      margin: 0;
+      font-size: $font-size-lg;
+      font-weight: $font-weight-semibold;
+      color: $text-color;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    gap: $spacing-2;
+  }
+
+  &__add-form {
+    padding: $spacing-4;
+    border-bottom: 1px solid $border-light;
+    display: flex;
+    gap: $spacing-2;
+  }
+
+  &__input {
+    flex: 1;
+    padding: $spacing-2 $spacing-3;
+    border: 1px solid $border-light;
+    border-radius: $border-radius;
+    font-size: $font-size-base;
+    font-family: monospace;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-color;
+    }
+  }
+
+  &__table {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  &__status {
+    padding: $spacing-1 $spacing-3;
+    border-radius: $border-radius;
+    font-size: $font-size-sm;
+    font-weight: $font-weight-medium;
+
+    &--untested {
+      background: rgba($text-muted, 0.1);
+      color: $text-muted;
+    }
+
+    &--testing {
+      background: rgba($warning-color, 0.1);
+      color: $warning-color;
+    }
+
+    &--working {
+      background: rgba($success-color, 0.1);
+      color: $success-color;
+    }
+
+    &--failed {
+      background: rgba($danger-color, 0.1);
+      color: $danger-color;
+    }
+  }
+}

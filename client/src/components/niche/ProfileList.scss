@@ -1,0 +1,67 @@
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px); // Account for header and padding
+  min-height: 400px;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    border-bottom: 1px solid #eee;
+  }
+
+  &__filter {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    min-width: 120px;
+  }
+
+  &__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    color: #666;
+  }
+
+  // Make table wrapper take remaining height
+  .table-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0; // Important for Firefox
+  }
+
+  // Make table body scrollable
+  .table {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+
+    thead {
+      flex: 0 0 auto;
+    }
+
+    tbody {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      min-height: 0; // Important for Firefox
+    }
+
+    tr {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+  }
+
+  // Keep pagination visible at bottom
+  .table__pagination {
+    flex: 0 0 auto;
+    border-top: 1px solid #eee;
+  }
+}
