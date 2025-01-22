@@ -26,6 +26,25 @@ const SettingsProxyManager = ({
   const [editingSession, setEditingSession] = useState(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [proxyToRemove, setProxyToRemove] = useState(null);
+  
+  const getHealthStatusClass = (status) => {
+    switch (status) {
+      case 'healthy':
+        return 'status-healthy';
+      case 'degraded':
+        return 'status-degraded';
+      case 'unhealthy':
+        return 'status-unhealthy';
+      default:
+        return '';
+    }
+  };
+
+  const getLatencyClass = (latency) => {
+    if (latency < 200) return 'latency-good';
+    if (latency < 500) return 'latency-medium';
+    return 'latency-high';
+  };
 
   const validateIP = (ip) => {
     const pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
@@ -155,7 +174,11 @@ const SettingsProxyManager = ({
         <div className="proxy-list">
           {selectedProxies.length > 0 && (
             <div className="bulk-actions">
-              <Button variant="danger" onClick={handleBulkRemove}>
+              <Button 
+                variant="danger" 
+                onClick={handleBulkRemove}
+                data-testid="remove-selected-proxies"
+              >
                 Remove Selected ({selectedProxies.length})
               </Button>
             </div>
@@ -181,15 +204,32 @@ const SettingsProxyManager = ({
                 </span>
                 <div className="proxy-actions">
                   <Button onClick={() => onTest(proxy)}>Test</Button>
-                  <Button variant="danger" onClick={() => handleConfirmRemove(proxy)}>
+                  <Button 
+                    variant="danger" 
+                    onClick={() => handleConfirmRemove(proxy)}
+                    data-testid={`remove-proxy-${proxy.id}`}
+                  >
                     Remove
                   </Button>
                 </div>
               </div>
 
-              {proxy.latency && (
+              {proxy.health && (
                 <div className="proxy-status">
-                  <span className="latency">{proxy.latency}ms</span>
+                  <>
+                    <span className={`status ${getHealthStatusClass(proxy.health.status)}`} data-testid="health-status">
+                      {proxy.health.status}
+                    </span>
+                    <span className={`latency ${getLatencyClass(proxy.health.latency)}`} data-testid="health-latency">
+                      {proxy.health.latency}ms
+                    </span>
+                    <span className="uptime" data-testid="health-uptime">
+                      {proxy.health.uptime}%
+                    </span>
+                    <span className="last-check" data-testid="health-last-check">
+                      Last checked: {new Date(proxy.health.lastCheck).toLocaleString()}
+                    </span>
+                  </>
                 </div>
               )}
 
@@ -219,6 +259,7 @@ const SettingsProxyManager = ({
                           type="text"
                           value={sessionData || session.session}
                           onChange={e => setSessionData(e.target.value)}
+                          data-testid={`session-edit-${session.id}`}
                         />
                         <Button onClick={() => handleUpdateSession(proxy.id, session.id)}>
                           Save
@@ -232,9 +273,9 @@ const SettingsProxyManager = ({
                       </>
                     ) : (
                       <>
-                        <span className="session-data">{session.session}</span>
+                        <span className="session-data" data-testid={`session-${session.id}`}>{session.session}</span>
                         <Button
-                          variant={session.status === 'active' ? 'success' : 'secondary'}
+                          variant={session.status === 'active' ? 'primary' : 'secondary'}
                           onClick={() => toggleSessionStatus(proxy.id, session.id, session.status)}
                         >
                           {session.status}
@@ -248,6 +289,7 @@ const SettingsProxyManager = ({
                         <Button
                           variant="danger"
                           onClick={() => onRemoveSession(proxy.id, session.id)}
+                          data-testid={`remove-session-${proxy.id}-${session.id}`}
                         >
                           Remove
                         </Button>
@@ -297,7 +339,13 @@ SettingsProxyManager.propTypes = {
       id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
       session: PropTypes.string.isRequired,
       status: PropTypes.string.isRequired
-    }))
+    })),
+    health: PropTypes.shape({
+      status: PropTypes.oneOf(['healthy', 'degraded', 'unhealthy']).isRequired,
+      latency: PropTypes.number.isRequired,
+      uptime: PropTypes.number.isRequired,
+      lastCheck: PropTypes.string.isRequired
+    })
   })),
   onAdd: PropTypes.func.isRequired,
   onRemove: PropTypes.func.isRequired,

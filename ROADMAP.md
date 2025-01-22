@@ -295,24 +295,24 @@ Following Test-Driven Development principles, each component will begin with tes
    - System settings
 
 #### ProxyManager Component Update
-1. [ ] Test: `client/tests/components/settings/ProxyManager.test.jsx`
+1. [x] Test: `client/tests/components/settings/ProxyManager.test.jsx`
    - Test proxy-session addition
    - Test validation
    - Test status updates
    - Test health monitoring
-2. [ ] Implementation: `client/src/components/settings/ProxyManager.jsx`
+2. [x] Implementation: `client/src/components/settings/ProxyManager.jsx`
    - Proxy-session management UI
    - Status indicators
    - Health metrics display
    - Session cookie input
-3. [ ] Styles: `client/src/components/settings/ProxyManager.scss`
+3. [x] Styles: `client/src/components/settings/ProxyManager.scss`
 
 #### Proxy Store Update
-1. [ ] Test: `client/src/stores/__tests__/proxyStore.test.js`
+1. [x] Test: `client/src/stores/__tests__/proxyStore.test.js`
    - Test proxy-session management
    - Test status updates
    - Test health tracking
-2. [ ] Implementation: `client/src/stores/proxyStore.js`
+2. [x] Implementation: `client/src/stores/proxyStore.js`
    - Proxy-session state management
    - Status tracking
    - Health monitoring
@@ -323,10 +323,86 @@ Following Test-Driven Development principles, each component will begin with tes
 
 #### API Integration
 1. [ ] Test: `client/tests/api/api.test.js`
-   - Test API client
-   - Test error handling
-   - Test retry logic
+   - Core API Client Tests
+     - Test base request configuration
+     - Test authentication header handling
+     - Test request interceptors
+     - Test response interceptors
+     - Test request cancellation
+   - Error Handling Tests
+     - Test network errors
+     - Test timeout handling
+     - Test rate limit responses
+     - Test invalid auth responses
+     - Test server error responses
+     - Test validation error responses
+   - Retry Logic Tests
+     - Test exponential backoff
+     - Test max retry attempts
+     - Test retry conditions
+     - Test retry abort conditions
+   - Endpoint-Specific Tests
+     - Niche API Tests
+       - Test niche creation/update/deletion
+       - Test niche reordering
+       - Test profile association
+     - Profile API Tests
+       - Test profile CRUD operations
+       - Test bulk operations
+       - Test status updates
+     - Batch API Tests
+       - Test batch creation
+       - Test progress tracking
+       - Test result retrieval
+     - Settings API Tests
+       - Test proxy configuration
+       - Test system settings
+       - Test target management
+     - Health Check Tests
+       - Test server status checks
+       - Test proxy health checks
 2. [ ] Implementation: `client/src/api/index.js`
+   - Core API Client
+     - Axios instance configuration
+     - Base URL and timeout settings
+     - Authentication header management
+     - Request/response interceptors
+     - Error transformation
+   - Retry Mechanism
+     - Exponential backoff implementation
+     - Retry condition evaluation
+     - Max attempts management
+     - Timeout handling
+   - Error Handling
+     - Error classification system
+     - Custom error classes
+     - Error response formatting
+     - Logging and monitoring
+   - Endpoint Implementations
+     - Niche API
+       - CRUD operations
+       - Batch operations
+       - Ordering management
+     - Profile API
+       - CRUD operations
+       - Bulk operations
+       - Status management
+     - Batch API
+       - Creation and control
+       - Progress monitoring
+       - Results management
+     - Settings API
+       - Configuration management
+       - System settings
+       - Target management
+     - Health API
+       - Status checking
+       - Health monitoring
+   - Utilities
+     - Request queuing
+     - Rate limiting
+     - Cache management
+     - Request cancellation
 
 #### WebSocket Integration
 1. [ ] Test: `client/tests/api/websocket.test.js`
