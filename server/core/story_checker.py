@@ -5,284 +5,209 @@ Manages HTTP-based Instagram story checking
 
 import aiohttp
 import json
-import re
-from typing import Optional, Dict, List
-from datetime import datetime, UTC, timedelta
+import time
+from typing import Optional
+from datetime import datetime, timezone
+from aiohttp_socks import ProxyConnector
+from .proxy_session import ProxySession
+from flask import current_app
 
-class SimpleStoryChecker:
+class StoryChecker:
     """Simple HTTP-based story checker"""
-    
-    def __init__(self, proxy: str, session_cookie: str):
-        """Initialize checker with proxy and session
-        
+
+    def __init__(self, proxy_session: ProxySession):
+        """Initialize checker with proxy session
+
         Args:
-            proxy: Proxy URL to use
-            session_cookie: Instagram session cookie
+            proxy_session: ProxySession instance with proxy and session info
         """
-        self.proxy = proxy
-        self.session_cookie = session_cookie
+        self.proxy_session = proxy_session
         self.session: Optional[aiohttp.ClientSession] = None
-        self.last_check: Optional[datetime] = None
-        
-        # Headers to look like a real browser with session
+
+        # Headers to mimic a real browser with session
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Cookie': f'sessionid={session_cookie}',
-            'DNT': '1',
-            'Sec-CH-UA': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-            'Sec-CH-UA-Mobile': '?0',
-            'Sec-CH-UA-Platform': '"Windows"',
-            'X-IG-App-ID': '936619743392459',
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-ASBD-ID': '129477',
-            'X-IG-WWW-Claim': '0'
+            'Accept': 'application/json',
+            'Cookie': f'sessionid={self.proxy_session.session.session}',
+            'X-IG-App-ID': '936619743392459'
         }
-    
+        current_app.logger.debug(f'Initialized StoryChecker with proxy {self.proxy_session.proxy_url_safe}')
+
     async def initialize(self) -> None:
         """Initialize HTTP session"""
         if not self.session:
+            current_app.logger.debug(f'Creating new aiohttp session with proxy {self.proxy_session.proxy_url_safe}')
+            connector = ProxyConnector.from_url(self.proxy_session.proxy_url)
             self.session = aiohttp.ClientSession(
                 headers=self.headers,
-                proxy=self.proxy
+                connector=connector
             )
-    
+
     async def check_story(self, username: str) -> bool:
-        """Check if profile has story using Instagram API
-        
+        """Check if profile has an active story using Instagram API
+
         Args:
             username: Instagram username to check
-            
+
         Returns:
-            True if story found, False otherwise
-            
+            True if an active story is found, False otherwise
+
         Raises:
             Exception: If check fails or rate limited
         """
+        start_time = time.time()
         if not self.session:
+            current_app.logger.info(f'Initializing new session for {username} check with proxy {self.proxy_session.proxy_url_safe}')
             await self.initialize()
-        
+
+        current_app.logger.info(f'Starting story check for {username} using proxy {self.proxy_session.proxy_url_safe}')
+
         try:
-            # First get user ID from profile
+            # Step 1: Get user ID from profile
             profile_url = f'https://www.instagram.com/api/v1/users/web_profile_info/?username={username}'
+            current_app.logger.info(f'Fetching profile info for {username} at {profile_url}')
+
+            profile_start_time = time.time()
+            profile_success, user_id = await self._get_profile(profile_url, username)
+            profile_duration = time.time() - profile_start_time
+            current_app.logger.info(f'Profile fetch for {username} took {profile_duration:.2f} seconds')
+
+            if not profile_success:
+                return False
+
+            # Step 2: Get stories data
+            stories_url = f'https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={user_id}'
+            current_app.logger.info(f'Fetching stories for {username} (ID: {user_id}) at {stories_url}')
+
+            stories_start_time = time.time()
+            stories_success, has_story = await self._get_stories(stories_url, username, user_id)
+            stories_duration = time.time() - stories_start_time
+            current_app.logger.info(f'Stories fetch for {username} took {stories_duration:.2f} seconds')
+
+            if not stories_success:
+                return False
+
+            # Record success after both requests complete successfully
+            self.proxy_session.record_success()
+            total_duration = time.time() - start_time
+            current_app.logger.info(f'Total story check for {username} took {total_duration:.2f} seconds')
+            return has_story
+
+        except Exception as e:
+            error_msg = f'Exception during story check for {username}: {type(e).__name__} - {str(e)}'
+            current_app.logger.exception(error_msg)
+            self.proxy_session.record_failure()
+            raise Exception(error_msg) from e
+
+    async def _get_profile(self, url: str, username: str) -> tuple[bool, Optional[str]]:
+        """Get user profile information"""
+        request_start_time = time.time()
+        async with self.session.get(url) as response:
+            response_status = response.status
+            current_app.logger.info(f'Profile request status for {username}: {response_status}')
             
-            async with self.session.get(profile_url) as response:
-                if response.status == 429:
-                    raise Exception("Rate limited")
-                
+            if not self._validate_response(response_status, 'profile', username):
+                return False, None
+
+            try:
                 data = await response.json()
-                if 'data' not in data or 'user' not in data['data']:
-                    raise Exception("Failed to get user data")
-                
-                user = data['data']['user']
-                user_id = user['id']
-                
-                # Get stories data
-                stories_url = f'https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={user_id}'
-                
-                async with self.session.get(stories_url) as stories_response:
-                    if stories_response.status == 429:
-                        raise Exception("Rate limited")
-                    
-                    stories_data = await stories_response.json()
-                    
-                    # Check if there are any stories
-                    has_story = bool(stories_data.get('reels', {}).get(user_id, {}).get('items', []))
-                    self.last_check = datetime.now(UTC)
-                    return has_story
-                    
-        except aiohttp.ClientError as e:
-            raise Exception(f"Network error: {str(e)}")
-        except json.JSONDecodeError:
-            raise Exception("Failed to parse response")
-    
+            except Exception as e:
+                error_msg = f'Failed to parse profile JSON for {username}: {str(e)}'
+                current_app.logger.error(error_msg)
+                self.proxy_session.record_failure()
+                return False, None
+
+            current_app.logger.debug(f'Profile response data structure: {list(data.keys()) if data else "empty"}')
+
+            if not self._validate_profile_data(data, username):
+                return False, None
+
+            user = data['data']['user']
+            user_id = user.get('id')
+            if not user_id:
+                error_msg = f'No user ID found for {username}'
+                current_app.logger.error(error_msg)
+                self.proxy_session.record_failure()
+                return False, None
+
+            current_app.logger.info(f'Successfully retrieved user ID {user_id} for {username}')
+            request_duration = time.time() - request_start_time
+            current_app.logger.info(f'Profile request for {username} took {request_duration:.2f} seconds')
+            return True, user_id
+
+    async def _get_stories(self, url: str, username: str, user_id: str) -> tuple[bool, bool]:
+        """Get user stories information"""
+        request_start_time = time.time()
+        async with self.session.get(url) as stories_response:
+            stories_status = stories_response.status
+            current_app.logger.info(f'Stories request status for {username}: {stories_status}')
+            
+            if not self._validate_response(stories_status, 'stories', username):
+                return False, False
+
+            try:
+                stories_data = await stories_response.json()
+            except Exception as e:
+                error_msg = f'Failed to parse stories JSON for {username}: {str(e)}'
+                current_app.logger.error(error_msg)
+                self.proxy_session.record_failure()
+                return False, False
+
+            current_app.logger.debug(f'Stories response data structure: {list(stories_data.keys()) if stories_data else "empty"}')
+
+            if not self._validate_stories_data(stories_data, username, user_id):
+                return False, False
+
+            reels = stories_data.get('reels', {})
+            user_reel = reels.get(user_id, {})
+            story_items = user_reel.get('items', [])
+            has_story = bool(story_items)
+
+            if has_story:
+                story_count = len(story_items)
+                current_app.logger.info(f'Found {story_count} active stories for {username}')
+            else:
+                current_app.logger.info(f'No active stories found for {username}')
+
+            request_duration = time.time() - request_start_time
+            current_app.logger.info(f'Stories request for {username} took {request_duration:.2f} seconds')
+            return True, has_story
+
+    def _validate_response(self, status: int, request_type: str, username: str) -> bool:
+        """Validate HTTP response status"""
+        if status == 429:
+            error_msg = f'Rate limited on {request_type} request for {username}'
+            current_app.logger.warning(error_msg)
+            self.proxy_session.record_failure()
+            return False
+        elif status != 200:
+            error_msg = f'{request_type.capitalize()} request failed for {username} with status {status}'
+            current_app.logger.error(error_msg)
+            self.proxy_session.record_failure()
+            return False
+        return True
+
+    def _validate_profile_data(self, data: dict, username: str) -> bool:
+        """Validate profile data structure"""
+        if not data or 'data' not in data or 'user' not in data['data']:
+            error_msg = f'Invalid profile data structure for {username}'
+            current_app.logger.error(error_msg)
+            self.proxy_session.record_failure()
+            return False
+        return True
+
+    def _validate_stories_data(self, data: dict, username: str, user_id: str) -> bool:
+        """Validate stories data structure"""
+        if not data or 'reels' not in data or user_id not in data['reels']:
+            error_msg = f'Invalid stories data structure for {username}'
+            current_app.logger.error(error_msg)
+            self.proxy_session.record_failure()
+            return False
+        return True
+
     async def cleanup(self) -> None:
         """Clean up resources"""
         if self.session:
+            current_app.logger.debug(f'Closing aiohttp session for proxy {self.proxy_session.proxy_url_safe}')
             await self.session.close()
             self.session = None
-
-class ProxySessionPair:
-    """Represents a proxy-session pair with health tracking"""
-    
-    def __init__(self, proxy: str, session_cookie: str):
-        """Initialize proxy-session pair
-        
-        Args:
-            proxy: Proxy URL to use
-            session_cookie: Instagram session cookie
-        """
-        self.proxy = proxy
-        self.session_cookie = session_cookie
-        self.total_checks = 0
-        self.successful_checks = 0
-        self.last_used = None
-        self.cooldown_until = None
-    
-    @property
-    def success_rate(self) -> float:
-        """Calculate success rate of checks"""
-        if self.total_checks == 0:
-            return 1.0
-        return self.successful_checks / self.total_checks
-    
-    def record_success(self) -> None:
-        """Record a successful check"""
-        self.total_checks += 1
-        self.successful_checks += 1
-        self.last_used = datetime.now(UTC)
-    
-    def record_failure(self) -> None:
-        """Record a failed check"""
-        self.total_checks += 1
-        self.last_used = datetime.now(UTC)
-    
-    def set_cooldown(self, minutes: int = 15) -> None:
-        """Set cooldown period
-        
-        Args:
-            minutes: Number of minutes to cooldown
-        """
-        self.cooldown_until = datetime.now(UTC) + timedelta(minutes=minutes)
-    
-    def is_on_cooldown(self) -> bool:
-        """Check if pair is on cooldown"""
-        if not self.cooldown_until:
-            return False
-        return datetime.now(UTC) < self.cooldown_until
-
-class StoryChecker:
-    """Main interface for Worker Manager"""
-    
-    def __init__(self, proxy: str, session_cookie: str):
-        """Initialize story checker
-        
-        Args:
-            proxy: Proxy URL to use
-            session_cookie: Instagram session cookie
-        """
-        self.pair = ProxySessionPair(proxy, session_cookie)
-        self.checker = SimpleStoryChecker(proxy, session_cookie)
-        self.rate_limiter = BrowserRateLimiter()
-    
-    async def check_profile(self, username: str) -> bool:
-        """Check if profile has story
-        
-        Args:
-            username: Instagram username to check
-            
-        Returns:
-            True if story found, False otherwise
-            
-        Raises:
-            Exception: If check fails
-        """
-        # Check rate limits
-        if self.pair.is_on_cooldown():
-            raise Exception("Rate limited - On cooldown")
-            
-        if not self.rate_limiter.can_visit(self.pair.proxy):
-            raise Exception("Rate limited - Too many requests")
-        
-        try:
-            # Check story
-            has_story = await self.checker.check_story(username)
-            
-            # Record success
-            self.pair.record_success()
-            self.rate_limiter.record_visit(self.pair.proxy)
-            
-            return has_story
-            
-        except Exception as e:
-            # Record failure and handle rate limits
-            self.pair.record_failure()
-            if "Rate limited" in str(e):
-                self.pair.set_cooldown()
-                self.rate_limiter.handle_rate_limit(self.pair.proxy)
-            raise
-
-class BrowserRateLimiter:
-    """Enforces browsing rate limits"""
-    
-    def __init__(self):
-        """Initialize rate limiter"""
-        self.visits: Dict[str, List[datetime]] = {}  # proxy -> visit times
-        self.cooldowns: Dict[str, datetime] = {}  # proxy -> cooldown until
-    
-    def can_visit(self, proxy: str) -> bool:
-        """Check if visit is allowed
-        
-        Args:
-            proxy: Proxy to check
-            
-        Returns:
-            True if visit allowed, False if rate limited
-        """
-        now = datetime.now(UTC)
-        
-        # Check cooldown
-        if proxy in self.cooldowns:
-            if now < self.cooldowns[proxy]:
-                return False
-            del self.cooldowns[proxy]
-        
-        # Initialize visit tracking
-        if proxy not in self.visits:
-            self.visits[proxy] = []
-        
-        # Clean old visits
-        hour_ago = now - timedelta(hours=1)
-        self.visits[proxy] = [
-            time for time in self.visits[proxy]
-            if time > hour_ago
-        ]
-        
-        # Check hourly limit (100 per hour)
-        if len(self.visits[proxy]) >= 100:
-            return False
-        
-        # Check 30-minute limit (50 per 30 minutes)
-        half_hour_ago = now - timedelta(minutes=30)
-        recent_visits = len([
-            time for time in self.visits[proxy]
-            if time > half_hour_ago
-        ])
-        if recent_visits >= 50:
-            return False
-        
-        # Check minimum delay (5 seconds)
-        if self.visits[proxy]:
-            last_visit = max(self.visits[proxy])
-            if (now - last_visit).total_seconds() < 5:
-                return False
-        
-        return True
-    
-    def record_visit(self, proxy: str) -> None:
-        """Record a successful visit
-        
-        Args:
-            proxy: Proxy that made the visit
-        """
-        if proxy not in self.visits:
-            self.visits[proxy] = []
-        self.visits[proxy].append(datetime.now(UTC))
-    
-    def handle_rate_limit(self, proxy: str) -> None:
-        """Handle rate limit detection
-        
-        Args:
-            proxy: Proxy that was rate limited
-        """
-        # Set 15-minute cooldown
-        self.cooldowns[proxy] = datetime.now(UTC) + timedelta(minutes=15)
-        
-        # Clear visit history
-        if proxy in self.visits:
-            self.visits[proxy] = []

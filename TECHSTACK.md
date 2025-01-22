@@ -1,7 +1,5 @@
 # Tech Stack for Instagram Story-Checking Tool
 
-This document outlines the finalized tech stack, testing strategy, and implementation plan for building the Instagram Story-checking tool.
-
 ## Tech Stack Overview
 
 ### Backend
@@ -9,17 +7,13 @@ This document outlines the finalized tech stack, testing strategy, and implement
 - **Database**: PostgreSQL
 - **ORM**: SQLAlchemy
 - **Libraries/Extensions**:
-  - Flask-RESTful (REST APIs)
-  - Flask-JWT-Extended (authentication)
   - Flask-SQLAlchemy (database management)
   - Flask-Migrate (database migrations)
 
 ### Frontend
 - **Framework**: React
 - **State Management**: Zustand
-- **Styling**: 
-  - Plain CSS/SASS
-  - Optional: Tailwind CSS
+- **Styling**: SCSS modules
 
 ## Testing Strategy
 
@@ -27,46 +21,37 @@ This document outlines the finalized tech stack, testing strategy, and implement
 - **Framework**: pytest
 - **Key Components**:
   1. **Unit Tests**:
-     - Individual route handlers
-     - Service layer functions
+     - API endpoints
+     - Worker management
      - Database models
-     - Utility functions
+     - Batch processing
   
   2. **Integration Tests**:
-     - API endpoints
-     - Database interactions
-     - Authentication flows
+     - Complete batch workflows
+     - Worker pool management
+     - Database operations
   
   3. **Fixtures**:
      - Database fixtures
-     - Authentication tokens
-     - Mock API responses
+     - Mock workers
+     - Test data
   
   4. **Test Coverage**:
      - pytest-cov for coverage reporting
-     - Minimum 80% coverage requirement
+     - Comprehensive error case testing
 
 ### Frontend Testing
 - **Framework**: Jest + React Testing Library
 - **Key Components**:
   1. **Unit Tests**:
-     - Individual React components
-     - Zustand store actions
-     - Utility functions
+     - React components
+     - Store actions
+     - API client
   
   2. **Integration Tests**:
      - Component interactions
+     - Store integration
      - API integration
-     - State management flows
-  
-  3. **End-to-End Tests**:
-     - Cypress for critical user flows
-     - Key features testing
-
-### Continuous Integration
-- **GitHub Actions** for automated testing
-- Pre-commit hooks for code quality
-- Automated test runs on pull requests
 
 ## Implementation Plan
 
@@ -75,70 +60,80 @@ This document outlines the finalized tech stack, testing strategy, and implement
 #### Features
 1. **Niche Management**:
    - CRUD endpoints
-   - Validation middleware
+   - Profile organization
    - Error handling
 
 2. **Profile Management**:
-   - CRUD operations
-   - Batch processing
-   - Status tracking
+   - Profile CRUD operations
+   - Multi-select functionality
+   - Import from files
+   - Stats tracking
 
 3. **Batch Management**:
-   - Generation
-   - Monitoring
-   - Results tracking
+   - Creation from selected profiles
+   - Progress monitoring
+   - Start/stop functionality
+   - Batch deletion with cleanup
 
-4. **Authentication**:
-   - JWT-based auth
-   - Role-based access
+4. **Worker Management**:
+   - Worker pool management
+   - Proxy assignment
+   - Session handling
+   - Rate limiting
 
 #### Testing Implementation
 ```python
 # Example test structure
-def test_create_niche():
-    response = client.post('/api/niches', json={
-        'name': 'Fitness',
-        'target_stories': 20
+def test_batch_workflow():
+    # Create batch with selected profiles
+    response = client.post('/api/batches', json={
+        'niche_id': niche.id,
+        'profile_ids': [profile1.id, profile2.id]
     })
     assert response.status_code == 201
-    assert response.json['name'] == 'Fitness'
-
-@pytest.fixture
-def mock_batch():
-    return {
-        'niche_id': 1,
-        'profile_count': 100,
-        'status': 'pending'
-    }
-
-def test_batch_creation(mock_batch):
-    response = client.post('/api/batches', json=mock_batch)
-    assert response.status_code == 201
+    batch_id = response.json['id']
+    
+    # Start batch
+    response = client.post('/api/batches/start', json={
+        'batch_ids': [batch_id]
+    })
+    assert response.status_code == 200
+    
+    # Verify completion
+    response = client.get('/api/batches')
+    batch = next(b for b in response.json if b['id'] == batch_id)
+    assert batch['status'] == 'done'
 ```
 
 ### 2. React Frontend
 
 #### Components
-- Reusable UI components
-- Feature-specific views
-- Layout components
+1. **Common Components**:
+   - Table (multi-select, sorting)
+   - Button (loading states)
+   - Modal (confirmations)
+
+2. **Feature Components**:
+   - NicheFeed (profile management)
+   - BatchTable (batch operations)
+   - ProxyManager (proxy configuration)
 
 #### Testing Implementation
 ```javascript
 // Example component test
-describe('NicheList', () => {
-  it('renders niche items correctly', () => {
-    render(<NicheList niches={mockNiches} />);
-    expect(screen.getByText('Fitness')).toBeInTheDocument();
+describe('BatchTable', () => {
+  it('handles batch selection', () => {
+    render(<BatchTable batches={mockBatches} />);
+    const row = screen.getByText(mockBatches[0].id);
+    fireEvent.click(row);
+    expect(row).toHaveClass('selected');
   });
-});
 
-// Example store test
-describe('nicheStore', () => {
-  it('adds niche correctly', () => {
-    const store = useNicheStore();
-    store.addNiche({ name: 'Fitness' });
-    expect(store.niches).toContain({ name: 'Fitness' });
+  it('handles batch actions', async () => {
+    const onStart = jest.fn();
+    render(<BatchTable onStart={onStart} />);
+    fireEvent.click(screen.getByText('Start Selected'));
+    expect(onStart).toHaveBeenCalled();
   });
 });
 ```
@@ -146,33 +141,57 @@ describe('nicheStore', () => {
 ### 3. State Management (Zustand)
 
 #### Stores
-1. **Niche Store**:
-   - Niche CRUD
-   - Selection state
+1. **Batch Store**:
+```javascript
+{
+  batches: [],           // Current batches
+  loading: false,        // Loading state
+  error: null,          // Error state
+  actions: {
+    fetchBatches,      // Get all batches
+    createBatch,       // Create from selected profiles
+    startBatches,      // Start selected batches
+    stopBatches,       // Stop selected batches
+    deleteBatches      // Delete selected batches
+  }
+}
+```
 
 2. **Profile Store**:
-   - Profile management
-   - Batch tracking
-
-3. **Auth Store**:
-   - User session
-   - Permissions
+```javascript
+{
+  profiles: [],
+  selectedProfiles: [],
+  loading: false,
+  error: null,
+  actions: {
+    fetchProfiles,
+    importProfiles,
+    selectProfile,
+    selectRange
+  }
+}
+```
 
 #### Testing Approach
 ```javascript
 // Example store test
 describe('batchStore', () => {
-  it('updates batch status', () => {
+  it('creates batch from selected profiles', async () => {
     const store = useBatchStore();
-    store.updateBatchStatus(1, 'completed');
-    expect(store.getBatch(1).status).toBe('completed');
+    await store.createBatch({
+      niche_id: 1,
+      profile_ids: [1, 2, 3]
+    });
+    expect(store.batches).toHaveLength(1);
+    expect(store.batches[0].status).toBe('queued');
   });
 });
 ```
 
 ## Development Workflow
 
-### 1. Test-Driven Development (TDD)
+### 1. Test-Driven Development
 1. Write failing test
 2. Implement feature
 3. Pass test
@@ -180,73 +199,66 @@ describe('batchStore', () => {
 5. Repeat
 
 ### 2. Code Review Process
-- Pull request template
 - Test coverage requirements
 - Code style enforcement
-
-### 3. Continuous Integration
-```yaml
-# Example GitHub Action
-name: Tests
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run Backend Tests
-        run: |
-          pip install -r requirements.txt
-          pytest --cov
-      - name: Run Frontend Tests
-        run: |
-          npm install
-          npm test -- --coverage
-```
+- Documentation updates
 
 ## Deployment
 
 ### Backend
-- AWS/Heroku/DigitalOcean
+- Flask development server
 - PostgreSQL database
-- Redis for caching
+- Worker pool management
 
 ### Frontend
-- Vercel/Netlify
-- CDN for static assets
+- React development server
+- API integration
+- State management
 
-## Performance Monitoring
+## Performance Considerations
 
-### Backend Monitoring
-- Flask debug toolbar
-- New Relic/Datadog
-- Custom logging
+### Backend
+1. **Worker Management**:
+   - Efficient proxy rotation
+   - Session reuse
+   - Rate limit handling
 
-### Frontend Monitoring
-- React Developer Tools
-- Performance profiling
-- Error tracking
+2. **Database Operations**:
+   - Batch operations
+   - Efficient queries
+   - Transaction management
+
+### Frontend
+1. **State Management**:
+   - Optimistic updates
+   - Error recovery
+   - Loading states
+
+2. **UI Performance**:
+   - Efficient rendering
+   - Pagination
+   - Error boundaries
 
 ## Why This Stack?
 
-1. **Testability**:
-   - Comprehensive testing setup
-   - Easy-to-maintain test suites
-   - Good tooling support
+1. **Simplicity**:
+   - Clear component structure
+   - Straightforward state management
+   - Easy testing
 
-2. **Scalability**:
-   - Independent scaling
-   - Microservices-ready
-   - Efficient state management
+2. **Reliability**:
+   - Comprehensive error handling
+   - Transaction safety
+   - Resource management
 
 3. **Maintainability**:
    - Clear separation of concerns
-   - Strong typing support
-   - Comprehensive testing
+   - Well-tested codebase
+   - Good documentation
 
 4. **Developer Experience**:
    - Fast feedback loop
-   - Excellent debugging tools
-   - Strong community support
+   - Good debugging tools
+   - Easy local development
 
-This tech stack provides a robust foundation for building a reliable, maintainable, and scalable Instagram Story-checking tool with comprehensive testing coverage.
+This tech stack provides a robust foundation for building a reliable and maintainable Instagram Story-checking tool with comprehensive testing coverage.

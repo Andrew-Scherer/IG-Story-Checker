@@ -5,10 +5,36 @@ Handles system settings endpoints
 
 import re
 from flask import Blueprint, request, jsonify
-from models import db, SystemSettings
+from models.base import db
+from models.settings import SystemSettings
 
 # Create blueprint
 settings_bp = Blueprint('settings', __name__)
+
+@settings_bp.route('', methods=['GET'])
+def get_settings():
+    """Get system settings"""
+    settings = SystemSettings.get_settings()
+    return jsonify(settings.to_dict())
+
+@settings_bp.route('', methods=['PUT'])
+def update_settings():
+    """Update system settings"""
+    data = request.get_json()
+    
+    # Validate settings
+    errors = validate_settings(data)
+    if errors:
+        return jsonify({
+            'message': 'Validation errors',
+            'errors': errors
+        }), 400
+    
+    # Update settings
+    settings = SystemSettings.get_settings()
+    settings.update(**data)
+    
+    return jsonify(settings.to_dict())
 
 def validate_email(email):
     """Validate email format"""
@@ -53,28 +79,3 @@ def validate_settings(data):
             errors.append("Invalid email format")
     
     return errors
-
-@settings_bp.route('/api/settings', methods=['GET'])
-def get_settings():
-    """Get system settings"""
-    settings = SystemSettings.get_settings()
-    return jsonify(settings.to_dict())
-
-@settings_bp.route('/api/settings', methods=['PUT'])
-def update_settings():
-    """Update system settings"""
-    data = request.get_json()
-    
-    # Validate settings
-    errors = validate_settings(data)
-    if errors:
-        return jsonify({
-            'message': 'Validation errors',
-            'errors': errors
-        }), 400
-    
-    # Update settings
-    settings = SystemSettings.get_settings()
-    settings.update(**data)
-    
-    return jsonify(settings.to_dict())

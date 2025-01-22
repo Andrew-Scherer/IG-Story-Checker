@@ -3,11 +3,11 @@ Session Model
 Manages Instagram session data
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, Enum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, ForeignKey, Enum
 from sqlalchemy.orm import relationship
-from models.base import Base, BaseModel
+from .base import BaseModel, db
 
-class Session(Base, BaseModel):
+class Session(BaseModel):
     """Instagram session model"""
     
     __tablename__ = 'sessions'
@@ -28,8 +28,21 @@ class Session(Base, BaseModel):
     )
     
     # Proxy relationship
-    proxy_id = Column(Integer, ForeignKey('proxies.id'), unique=True)  # One session per proxy
-    proxy = relationship('Proxy', back_populates='sessions')
+    proxy_id = Column(String, ForeignKey('proxies.id'), unique=True)  # One session per proxy
+    proxy = relationship("Proxy", back_populates="sessions")
     
+    def to_dict(self):
+        """Convert session to dictionary"""
+        return {
+            **super().to_dict(),
+            'session': self.session,
+            'status': self.status,
+            'proxy_id': self.proxy_id
+        }
+
     def __repr__(self):
         return f'<Session {self.id} ({self.status})>'
+        
+    def is_valid(self) -> bool:
+        """Check if session is valid (active)"""
+        return self.status == self.STATUS_ACTIVE

@@ -1,0 +1,76 @@
+@import '../../styles/variables';
+
+.batch-table {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: $spacing-4;
+  background: $background-primary;
+  border-radius: $border-radius;
+  box-shadow: $shadow-sm;
+
+  &__controls {
+    display: flex;
+    gap: $spacing-3;
+    margin-bottom: $spacing-4;
+  }
+
+  &__error {
+    padding: $spacing-3;
+    margin-bottom: $spacing-4;
+    background-color: rgba($danger-color, 0.1);
+    color: $danger-color;
+    border-radius: $border-radius;
+    cursor: pointer;
+    
+    &:hover {
+      background-color: rgba($danger-color, 0.15);
+    }
+  }
+
+  &__loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: $text-secondary;
+  }
+
+  // Table overrides
+  .table {
+    flex: 1;
+  }
+
+  .table__cell {
+    &[data-column='progress'],
+    &[data-column='success_rate'],
+    &[data-column='queue_position'] {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  .table__row--selected {
+    background-color: rgba($primary-color, 0.1);
+  }
+
+  .table__cell {
+    &[data-column='actions'] {
+      text-align: center;
+    }
+  }
+
+  .view-logs-button {
+    padding: $spacing-2 $spacing-3;
+    background-color: $primary-color;
+    color: #ffffff; // Using white color for text
+    border: none;
+    border-radius: $border-radius;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+
+    &:hover {
+      background-color: lighten($primary-color, 10%);
+    }
+  }
+}

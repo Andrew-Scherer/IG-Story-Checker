@@ -1,116 +1,133 @@
-import create from 'zustand';
-
-// Initial dummy data for testing
-const dummyProfiles = [
-  { 
-    id: 1, 
-    username: 'fitness_guru', 
-    nicheId: 1,
-    status: 'active',
-    lastChecked: new Date().toISOString(),
-    lastDetected: new Date().toISOString(),
-    totalChecks: 15,
-    totalDetections: 8
-  },
-  { 
-    id: 2, 
-    username: 'fashion_trends', 
-    nicheId: 2,
-    status: 'active',
-    lastChecked: new Date().toISOString(),
-    lastDetected: new Date().toISOString(),
-    totalChecks: 12,
-    totalDetections: 5
-  },
-  { 
-    id: 3, 
-    username: 'foodie_delights', 
-    nicheId: 3,
-    status: 'active',
-    lastChecked: new Date().toISOString(),
-    lastDetected: new Date().toISOString(),
-    totalChecks: 10,
-    totalDetections: 3
-  }
-];
+import { create } from 'zustand';
+import { profiles } from '../api';
 
 const useProfileStore = create((set, get) => ({
   // State
-  profiles: dummyProfiles, // Initialize with dummy data
+  profiles: [],
   filters: {
-    nicheId: null,
-    status: 'active',
-    search: ''
-  },
-  pagination: {
-    page: 1,
-    pageSize: 20,
-    total: 0
+    nicheId: null
   },
   loading: false,
   error: null,
+  selectedProfileIds: [],
 
   // Actions
-  setProfiles: (profiles) => set({ profiles }),
-
-  addProfiles: (newProfiles) => {
-    const currentProfiles = get().profiles;
-    const uniqueProfiles = newProfiles.filter(
-      newProfile => !currentProfiles.some(p => p.username === newProfile.username)
-    );
-    set({ profiles: [...currentProfiles, ...uniqueProfiles] });
+  fetchProfiles: async () => {
+    try {
+      console.log('=== Fetching Profiles ===');
+      console.log('1. Setting loading state...');
+      set({ loading: true, error: null });
+      
+      console.log('2. Making API request to /api/profiles...');
+      const response = await profiles.list();
+      console.log('3. API Response:', response);
+      
+      console.log('4. Updating store with profiles...');
+      set({ 
+        profiles: response,
+        loading: false 
+      });
+      console.log('5. Store updated successfully');
+    } catch (error) {
+      console.error('!!! Error fetching profiles !!!');
+      console.error('Error details:', error);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      if (error.response) {
+        console.error('Server response:', error.response);
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      set({ 
+        error: error.message,
+        loading: false
+      });
+    }
   },
 
-  updateProfile: (id, updates) => {
-    const profiles = get().profiles.map(profile =>
-      profile.id === id ? { ...profile, ...updates } : profile
-    );
-    set({ profiles });
+  refreshStories: async () => {
+    try {
+      set({ loading: true, error: null });
+      await profiles.refreshStories();
+      // Fetch profiles again to get updated active_story states
+      await get().fetchProfiles();
+    } catch (error) {
+      console.error('Failed to refresh stories:', error);
+      set({ 
+        error: error.message,
+        loading: false
+      });
+    }
   },
 
-  deleteProfiles: (ids) => {
-    const profiles = get().profiles.filter(profile => !ids.includes(profile.id));
-    set({ profiles });
+  updateProfile: async (id, updates) => {
+    try {
+      set({ loading: true, error: null });
+      const response = await profiles.update(id, updates);
+      set(state => ({
+        profiles: state.profiles.map(profile =>
+          profile.id === id ? response : profile
+        ),
+        loading: false
+      }));
+    } catch (error) {
+      console.error('Failed to update profile:', error);
+      set({ 
+        error: error.message,
+        loading: false
+      });
+    }
   },
 
-  assignToNiche: (profileIds, nicheId) => {
-    const profiles = get().profiles.map(profile =>
-      profileIds.includes(profile.id) ? { ...profile, nicheId } : profile
-    );
-    set({ profiles });
+  importFromFile: async (file) => {
+    try {
+      set({ loading: true, error: null });
+      
+      if (!get().filters.nicheId) {
+        throw new Error('Please select a niche before importing profiles');
+      }
+
+      const response = await profiles.import(get().filters.nicheId, file);
+      set(state => ({ 
+        profiles: [...state.profiles, ...response.created]
+      }));
+      return response;
+    } catch (error) {
+      console.error('Import failed:', error);
+      set({ 
+        error: error.message,
+        loading: false
+      });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
   },
 
   setFilters: (newFilters) => {
-    set(state => ({
-      filters: { ...state.filters, ...newFilters },
-      pagination: { ...state.pagination, page: 1 }
-    }));
+    set({ filters: { ...get().filters, ...newFilters } });
   },
-
-  setPagination: (updates) => {
-    set(state => ({
-      pagination: { ...state.pagination, ...updates }
-    }));
-  },
-
-  setLoading: (loading) => set({ loading }),
-  setError: (error) => set({ error }),
-  clearError: () => set({ error: null }),
 
   // Selectors
   getProfilesByNiche: (nicheId) => {
-    const state = get();
-    return state.profiles.filter(profile => profile.nicheId === nicheId);
+    return get().profiles.filter(profile => profile.niche_id === nicheId);
   },
 
   getFilteredProfiles: () => {
     const { profiles, filters } = get();
-    return profiles.filter(profile => {
-      if (filters.nicheId && profile.nicheId !== filters.nicheId) return false;
-      if (filters.status !== 'all' && profile.status !== filters.status) return false;
-      if (filters.search && !profile.username.toLowerCase().includes(filters.search.toLowerCase())) return false;
-      return true;
-    });
+    return profiles.filter(profile => 
+      filters.nicheId ? profile.niche_id === filters.nicheId : true
+    );
+  },
+
+  // Selection actions
+  setSelectedProfiles: (profileIds) => {
+    set({ selectedProfileIds: profileIds });
+  },
+
+  getSelectedProfiles: () => {
+    const { profiles, selectedProfileIds } = get();
+    return profiles.filter(profile => selectedProfileIds.includes(profile.id));
   }
 }));
 

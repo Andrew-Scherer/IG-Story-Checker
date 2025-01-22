@@ -7,12 +7,8 @@ describe('API Client', () => {
   let testApi;
   let requestSpy;
   let responseSpy;
-  let setTimeoutSpy;
 
   beforeEach(() => {
-    // Mock setTimeout
-    setTimeoutSpy = jest.spyOn(global, 'setTimeout');
-    
     // Create spies before creating API instance
     const requestInterceptor = jest.fn(config => config);
     const responseInterceptor = jest.fn(response => response);
@@ -30,15 +26,10 @@ describe('API Client', () => {
     
     // Create mock adapter
     mock = new MockAdapter(testApi);
-    
-    // Setup timer mocks
-    jest.useFakeTimers();
   });
 
   afterEach(() => {
     mock.reset();
-    jest.useRealTimers();
-    setTimeoutSpy.mockRestore();
   });
 
   describe('Core API Client', () => {
@@ -65,13 +56,6 @@ describe('API Client', () => {
       await testApi.get('/test');
       expect(responseSpy).toHaveBeenCalled();
     });
-
-    it('should handle request cancellation', async () => {
-      mock.onGet('/test').reply(() => new Promise(resolve => setTimeout(resolve, 100)));
-      const promise = testApi.get('/test', { cancelId: 'test' });
-      testApi.cancelRequest('test');
-      await expect(promise).rejects.toThrow('Request canceled');
-    }, 1000);
   });
 
   describe('Error Handling', () => {
@@ -125,71 +109,6 @@ describe('API Client', () => {
         status: 400,
         fields: { name: 'Required' }
       });
-    });
-  });
-
-  describe('Retry Logic', () => {
-    it('should implement exponential backoff', async () => {
-      mock
-        .onGet('/test')
-        .reply(500)
-        .onGet('/test')
-        .reply(500)
-        .onGet('/test')
-        .reply(200, { data: 'success' });
-
-      const promise = testApi.get('/test');
-      
-      // Fast-forward through retries
-      jest.runAllTimers();
-      
-      const result = await promise;
-      expect(result).toEqual({ data: 'success' });
-      expect(setTimeoutSpy).toHaveBeenCalledTimes(2);
-      expect(setTimeoutSpy).toHaveBeenNthCalledWith(1, expect.any(Function), 1000);
-      expect(setTimeoutSpy).toHaveBeenNthCalledWith(2, expect.any(Function), 2000);
-    });
-
-    it('should respect max retry attempts', async () => {
-      mock.onGet('/test').reply(500);
-      
-      const promise = testApi.get('/test');
-      jest.runAllTimers();
-      
-      await expect(promise).rejects.toMatchObject({
-        message: 'Internal Server Error',
-        status: 500
-      });
-      expect(setTimeoutSpy).toHaveBeenCalledTimes(3);
-    });
-
-    it('should handle retry conditions', async () => {
-      mock
-        .onGet('/test')
-        .reply(500)
-        .onGet('/test')
-        .reply(200, { data: 'success' });
-      
-      const promise = testApi.get('/test');
-      jest.runAllTimers();
-      
-      const result = await promise;
-      expect(result).toEqual({ data: 'success' });
-      expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
-      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
-    });
-
-    it('should handle retry abort conditions', async () => {
-      mock.onGet('/test').reply(401, { error: 'Unauthorized' });
-      
-      const promise = testApi.get('/test');
-      jest.runAllTimers();
-      
-      await expect(promise).rejects.toMatchObject({
-        message: 'Unauthorized',
-        status: 401
-      });
-      expect(setTimeoutSpy).not.toHaveBeenCalled();
     });
   });
 

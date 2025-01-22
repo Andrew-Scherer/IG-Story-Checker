@@ -2,15 +2,57 @@
 
 .niche-feed {
   display: flex;
-  flex-direction: column;
   height: 100%;
   background: $background-primary;
   border-radius: $border-radius;
   box-shadow: $shadow-sm;
 
+  &__sidebar {
+    width: 300px;
+    border-right: 1px solid $border-light;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  &__main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0; // Enable text truncation
+    overflow: hidden;
+  }
+
+  &__profiles {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
   &__header {
     padding: $spacing-4;
     border-bottom: 1px solid $border-light;
+    background: $background-primary;
+
+    &-controls {
+      display: flex;
+      align-items: center;
+      gap: $spacing-3;
+      justify-content: space-between;
+    }
+
+    &-group {
+      display: flex;
+      align-items: center;
+      gap: $spacing-3;
+    }
+  }
+
+  &__button-group {
+    display: flex;
+    gap: $spacing-2;
+    align-items: center;
   }
 
   &__add-form {

@@ -1,0 +1,56 @@
+@import '../../styles/variables.scss';
+
+.spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  &--inline {
+    display: inline-flex;
+    vertical-align: middle;
+  }
+  
+  &--small {
+    .spinner__circle {
+      width: 16px;
+      height: 16px;
+      border-width: 2px;
+    }
+  }
+  
+  &--medium {
+    .spinner__circle {
+      width: 24px;
+      height: 24px;
+      border-width: 3px;
+    }
+  }
+  
+  &--large {
+    .spinner__circle {
+      width: 32px;
+      height: 32px;
+      border-width: 4px;
+    }
+  }
+  
+  &--light {
+    .spinner__circle {
+      border-color: rgba(255, 255, 255, 0.2);
+      border-top-color: white;
+    }
+  }
+  
+  &__circle {
+    border-radius: 50%;
+    border: 3px solid rgba($text-color, 0.2);
+    border-top-color: $text-color;
+    animation: spin 0.8s linear infinite;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

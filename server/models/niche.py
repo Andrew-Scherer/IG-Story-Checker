@@ -4,10 +4,11 @@ Represents a category for organizing profiles
 """
 
 import uuid
-from sqlalchemy import Column, String, Integer, UniqueConstraint, select
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Integer, UniqueConstraint, select, event
+from sqlalchemy.orm import relationship, reconstructor
 from sqlalchemy.exc import IntegrityError
 from .base import BaseModel, db
+from datetime import datetime, timezone
 
 class Niche(BaseModel):
     """Model representing a niche category.
@@ -21,7 +22,7 @@ class Niche(BaseModel):
     # Primary fields
     id = Column(String(36), primary_key=True)
     name = Column(String(50), nullable=False)
-    display_order = Column(Integer, nullable=False, default=0)
+    order = Column(Integer, nullable=False, default=0)
     daily_story_target = Column(Integer, nullable=False, default=10)
 
     # Ensure name uniqueness
@@ -36,7 +37,7 @@ class Niche(BaseModel):
         passive_deletes=False  # Profiles remain when niche is deleted
     )
 
-    def __init__(self, name, display_order=None, daily_story_target=10):
+    def __init__(self, name, order=None, daily_story_target=10):
         """Initialize a new niche.
         
         Args:
@@ -52,8 +53,9 @@ class Niche(BaseModel):
             
         self.id = str(uuid.uuid4())
         self.name = name
-        self.display_order = display_order if display_order is not None else 0
+        self.order = order if order is not None else 0
         self.daily_story_target = daily_story_target
+        self._update_timestamp()
 
     @classmethod
     def reorder(cls, niche_ids):
@@ -65,7 +67,7 @@ class Niche(BaseModel):
         for index, niche_id in enumerate(niche_ids):
             niche = db.session.get(cls, niche_id)
             if niche:
-                niche.display_order = index
+                niche.order = index
 
     @classmethod
     def get_ordered(cls):
@@ -74,7 +76,7 @@ class Niche(BaseModel):
         Returns:
             list: Niches ordered by display_order
         """
-        stmt = select(cls).order_by(cls.display_order.asc())
+        stmt = select(cls).order_by(cls.order.asc())
         return db.session.execute(stmt).scalars().all()
 
     def to_dict(self):
@@ -86,12 +88,24 @@ class Niche(BaseModel):
         return {
             'id': self.id,
             'name': self.name,
-            'display_order': self.display_order,
+            'order': self.order,
             'daily_story_target': self.daily_story_target,
-            'created_at': self.created_at,
-            'updated_at': self.updated_at
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
     def __repr__(self):
         """String representation of the Niche."""
         return f"<Niche(name='{self.name}')>"
+
+    @reconstructor
+    def init_on_load(self):
+        self._update_timestamp()
+
+    def _update_timestamp(self):
+        if hasattr(self, 'updated_at'):
+            self.updated_at = datetime.now(timezone.utc)
+
+@event.listens_for(Niche, 'before_update')
+def receive_before_update(mapper, connection, target):
+    target._update_timestamp()

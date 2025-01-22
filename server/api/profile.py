@@ -3,33 +3,47 @@ Profile API Routes
 Handles HTTP endpoints for profile management
 """
 
-from flask import Blueprint, request, jsonify
+import re
+from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from models.profile import Profile
-from models.base import db
+from extensions import db
+from utils.refresh_stories import refresh_stories
+
 
 # Create blueprint
 profile_bp = Blueprint('profile', __name__)
 
-@profile_bp.route('/api/profiles', methods=['GET'])
+@profile_bp.route('', methods=['GET'])
 def list_profiles():
     """Get list of profiles with optional filtering"""
-    # Build base query
-    stmt = select(Profile)
-    
-    # Apply filters
-    if 'status' in request.args:
-        stmt = stmt.where(Profile.status == request.args['status'])
-    
-    if 'niche_id' in request.args:
-        stmt = stmt.where(Profile.niche_id == request.args['niche_id'])
+    try:
+        current_app.logger.debug("Building profile query")
+        stmt = select(Profile)
         
-    # Execute query
-    profiles = db.session.execute(stmt).scalars().all()
-    return jsonify([profile.to_dict() for profile in profiles])
+        if 'status' in request.args:
+            status = request.args['status']
+            current_app.logger.debug(f"Filtering by status: {status}")
+            stmt = stmt.where(Profile.status == status)
+        
+        if 'niche_id' in request.args:
+            niche_id = request.args['niche_id']
+            current_app.logger.debug(f"Filtering by niche_id: {niche_id}")
+            stmt = stmt.where(Profile.niche_id == niche_id)
+            
+        current_app.logger.debug("Executing profile query")
+        profiles = db.session.execute(stmt).scalars().all()
+        result = [profile.to_dict() for profile in profiles]
+        current_app.logger.debug(f"Found {len(result)} profiles")
+        return jsonify(result)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error listing profiles: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
-@profile_bp.route('/api/profiles/<profile_id>', methods=['GET'])
+@profile_bp.route('/<profile_id>', methods=['GET'])
 def get_profile(profile_id):
     """Get single profile by ID"""
     profile = db.session.get(Profile, profile_id)
@@ -38,25 +52,26 @@ def get_profile(profile_id):
     
     return jsonify(profile.to_dict())
 
-@profile_bp.route('/api/profiles', methods=['POST'])
+@profile_bp.route('', methods=['POST'])
 def create_profile():
     """Create new profile"""
-    data = request.get_json()
-    
-    # Validate required fields
-    if 'username' not in data:
-        return jsonify({'error': 'username is required'}), 400
-    
     try:
-        # Create profile
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+            
+        if 'username' not in data:
+            return jsonify({'error': 'username is required'}), 400
+            
+        username = data['username']
+        url = f"https://instagram.com/{username}"
         profile = Profile(
-            username=data['username'],
-            url=data.get('url'),
-            status=data.get('status', 'active'),
+            username=username,
+            url=url,
+            status='active',
             niche_id=data.get('niche_id')
         )
         
-        # Save to database
         db.session.add(profile)
         db.session.commit()
         
@@ -68,52 +83,82 @@ def create_profile():
             return jsonify({'error': 'Username cannot be empty'}), 400
         else:
             return jsonify({'error': 'Username already exists'}), 400
-    except ValueError as e:
+    except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': str(e)}), 500
 
-@profile_bp.route('/api/profiles/bulk', methods=['POST'])
-def bulk_create_profiles():
-    """Bulk create profiles"""
-    data = request.get_json()
-    
-    if 'profiles' not in data:
-        return jsonify({'error': 'profiles array is required'}), 400
-    
-    created = []
-    errors = []
-    
-    for profile_data in data['profiles']:
-        try:
-            # Create profile
-            profile = Profile(
-                username=profile_data['username'],
-                url=profile_data.get('url'),
-                status=profile_data.get('status', 'active'),
-                niche_id=profile_data.get('niche_id')
-            )
+@profile_bp.route('/niches/<niche_id>/import', methods=['POST'])
+def import_profiles(niche_id):
+    """Import profiles from file for a specific niche"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
             
-            # Save to database
-            db.session.add(profile)
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({'error': 'No file selected'}), 400
+            
+        content = file.read().decode('utf-8')
+        lines = [line.strip() for line in content.split('\n') if line.strip()]
+        
+        created_profiles = []
+        errors = []
+        
+        for line in lines:
+            try:
+                match = re.match(r'(?:https?:\/\/)?(?:www\.)?(?:instagram\.com|instagr\.am)\/([a-zA-Z0-9._]{1,30})(?:\/|\?|$)', line)
+                username = match.group(1) if match else line
+                
+                if not re.match(r'^[a-zA-Z0-9._]{1,30}$', username):
+                    errors.append({
+                        'line': line,
+                        'error': 'Invalid username format'
+                    })
+                    continue
+                
+                existing = db.session.execute(
+                    select(Profile).where(Profile.username == username)
+                ).scalar()
+                
+                if existing:
+                    errors.append({
+                        'line': line,
+                        'error': 'Profile already exists'
+                    })
+                    continue
+                
+                profile = Profile(
+                    username=username,
+                    url=f"https://instagram.com/{username}",
+                    status='active',
+                    niche_id=niche_id
+                )
+                
+                db.session.add(profile)
+                db.session.flush()
+                created_profiles.append(profile.to_dict())
+                
+            except Exception as e:
+                errors.append({
+                    'line': line,
+                    'error': str(e)
+                })
+                continue
+        
+        if created_profiles:
             db.session.commit()
             
-            created.append(profile.to_dict())
-            
-        except (IntegrityError, ValueError) as e:
-            db.session.rollback()
-            errors.append({
-                'username': profile_data.get('username'),
-                'error': str(e)
-            })
-    
-    # Return 207 if partial success, 201 if all successful
-    status_code = 207 if errors else 201
-    return jsonify({
-        'created': created,
-        'errors': errors
-    }), status_code
+        status_code = 207 if errors else 201
+        return jsonify({
+            'created': created_profiles,
+            'errors': errors
+        }), status_code
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
-@profile_bp.route('/api/profiles/<profile_id>', methods=['PUT'])
+@profile_bp.route('/<profile_id>', methods=['PUT'])
 def update_profile(profile_id):
     """Update existing profile"""
     profile = db.session.get(Profile, profile_id)
@@ -123,11 +168,8 @@ def update_profile(profile_id):
     data = request.get_json()
     
     try:
-        # Update fields
         if 'username' in data:
             profile.username = data['username']
-        if 'url' in data:
-            profile.url = data['url']
         if 'status' in data:
             profile.set_status(data['status'])
         if 'niche_id' in data:
@@ -146,7 +188,7 @@ def update_profile(profile_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
 
-@profile_bp.route('/api/profiles/<profile_id>', methods=['DELETE'])
+@profile_bp.route('/<profile_id>', methods=['DELETE'])
 def delete_profile(profile_id):
     """Soft delete profile"""
     profile = db.session.get(Profile, profile_id)
@@ -158,7 +200,7 @@ def delete_profile(profile_id):
     
     return '', 204
 
-@profile_bp.route('/api/profiles/<profile_id>/reactivate', methods=['POST'])
+@profile_bp.route('/<profile_id>/reactivate', methods=['POST'])
 def reactivate_profile(profile_id):
     """Reactivate soft-deleted profile"""
     profile = db.session.get(Profile, profile_id)
@@ -170,7 +212,17 @@ def reactivate_profile(profile_id):
     
     return jsonify(profile.to_dict())
 
-@profile_bp.route('/api/profiles/<profile_id>/record_check', methods=['POST'])
+@profile_bp.route('/refresh-stories', methods=['POST'])
+def trigger_refresh_stories():
+    """Trigger story status refresh"""
+    try:
+        refresh_stories()
+        return jsonify({'message': 'Stories refreshed successfully'})
+    except Exception as e:
+        current_app.logger.error(f"Error refreshing stories: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@profile_bp.route('/<profile_id>/record_check', methods=['POST'])
 def record_check(profile_id):
     """Record story check result"""
     profile = db.session.get(Profile, profile_id)

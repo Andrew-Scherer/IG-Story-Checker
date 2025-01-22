@@ -1,224 +1,296 @@
-# Single Source of Truth: Workflow & Data Flows
+# System Workflow & Data Flows
 
-## 1. Data Foundations
+## 1. Core Components
 
-### 1.1. Master List
+### 1.1. Data Models
 
-**Structure**:
+**Profile**
 - Username (primary key)
-- Niche
-- Status (active/deleted)
-- Date Last Checked
-- Date Last Detected
-- Total Checks
-- Total Times Detected
+- Niche association
+- Story check statistics
+- Last check timestamp
+- Last story detection
 
-**Role**:
-- Central repository for all Instagram profiles
-- No duplicates allowed
-- Source for all operations (batch checks, results display)
+**Batch**
+- ID (UUID)
+- Niche association
+- Status (queued/in_progress/done)
+- Progress tracking
+- Creation timestamp
+- Associated profiles
 
-**Potential Conflicts & Mitigations**:
-1. **Duplicate Usernames**
-   - *Issue*: Username exists during import
-   - *Mitigation*: 
-     - Skip existing entries
-     - Alphabetical sorting for faster search
+**Proxy**
+- Connection details
+- Health metrics
+- Rate limit tracking
+- Session management
 
-2. **Concurrent Writes**
-   - *Issue*: Multiple processes updating single profile
-   - *Mitigation*:
-     - Row-level locking
-     - One batch per niche limit
-     - No profile duplication
+### 1.2. State Management
 
-### 1.2. Daily Story Targets
+**Profile States**
+- Story detection status
+- Check history
+- Niche assignment
 
-**Purpose**:
-- Store daily story count goals per niche
-- Example: `Fitness: 20 stories/day`
+**Batch States**
+- Queued: Initial state, ready for processing
+- In Progress: Currently checking stories
+- Done: All profiles processed
 
-**Usage**:
-- Drives batch auto-trigger when below target
-
-**Conflicts & Mitigations**:
-- *Issue*: Mid-day target changes
-- *Mitigation*: Changes only affect future triggers
+**Proxy States**
+- Active/Inactive status
+- Rate limit tracking
+- Error counts
+- Session validity
 
 ## 2. Interface Workflows
 
 ### 2.1. Niche Feed Tab
 
-**Components**:
-1. **Niche List (Left Panel)**
-2. **Profile List (Right Panel)**
-3. **File Importer**
-4. **Filter & Sort Controls**
+**Components**
+1. Profile List
+   - Multi-select functionality
+   - Profile statistics display
+   - Niche filtering
+   - Sort controls
 
-**Workflows**:
+2. File Importer
+   - Drag-and-drop support
+   - Validation
+   - Duplicate handling
+   - Error reporting
 
-1. **Niche Management**
-   - Create: Add new niche name
-   - Edit: Update existing niche
-   - Delete: Remove niche (profiles revert to unassigned)
-   - Reorder: Visual organization only
+3. Story Check Controls
+   - "Check Selected Profiles" button
+   - Selection count display
+   - Batch creation trigger
 
-2. **Profile Management**
-   - View profiles by niche
-   - Bulk actions (delete/reassign)
-   - Pagination for large datasets
+**Actions**
+1. Profile Selection
+   - Click rows to select
+   - Shift-click for range
+   - Ctrl/Cmd-click for individual
 
-3. **Import Process**
-   - Validate usernames from .txt
-   - Skip duplicates
-   - Ignore malformed entries
+2. Profile Import
+   - Upload text file
+   - Parse usernames
+   - Validate format
+   - Handle duplicates
 
-### 2.2. Batch + Results Tab
+3. Batch Creation
+   - Select profiles
+   - Click check button
+   - System creates batch
+   - Redirect to batch tab
 
-**Batch Control**:
+### 2.2. Batch Tab
 
-1. **Manual Trigger**
-   - User selects niche and profile count
-   - System creates batch record
-   - Status progression: Pending → In Progress → Completed
+**Components**
+1. Batch Table
+   - Multi-select support
+   - Progress tracking
+   - Status display
+   - Success rate calculation
 
-2. **Auto Trigger**
-   - Hourly random-minute check
-   - Triggers if below daily target
-   - Rate limiting prevents overlap
+2. Batch Controls
+   - Start selected
+   - Stop selected
+   - Delete selected
 
-**Results Display**:
-- 24-hour story detection window
-- Niche/time filtering
-- Bulk username copy
-- Auto-purge after 24 hours
+**Actions**
+1. Batch Management
+   - Select batches
+   - Start/stop processing
+   - Monitor progress
+   - View results
+
+2. Results Tracking
+   - Success rate display
+   - Profile completion count
+   - Story detection stats
 
 ### 2.3. Settings Tab
 
-**Configurations**:
-1. **Master List View**
-   - Paginated table display
-   - Basic CRUD operations
-
-2. **Story Targets**
-   - Per-niche daily goals
-   - Reasonable limits (~800 max)
-
-3. **Rate Controls**
-   - Profiles per minute
-   - Thread count (default: 3)
-
-4. **Proxy Management**
+**Components**
+1. Proxy Management
    - Add/remove proxies
-   - Validation checks
-   - Format: `ip:port:user:pass`
+   - Health monitoring
+   - Rate limit config
+   - Session management
 
-## 3. Batch Processing
+2. System Settings
+   - Thread count control
+   - Rate limiting
+   - Retry configuration
+   - Error thresholds
 
-### 3.1. Creation Flow
+## 3. Processing Workflows
 
-1. **Pre-Check**
-   - Verify proxy availability
-   - Confirm no existing niche batch
-   - Validate rate limits
+### 3.1. Story Checking
 
-2. **Queue**
-   - Generate batch ID
-   - Set initial pending status
+1. **Profile Selection**
+   - User selects profiles in Niche Feed
+   - System validates selection
+   - Creates batch record
 
-3. **Processing**
-   - Update status to "In Progress"
-   - Process profiles (sequential/parallel)
-   - Update profile metrics
+2. **Batch Processing**
+   - User starts batch
+   - System assigns workers
+   - Processes profiles sequentially
+   - Updates stats in real-time
 
-4. **Completion**
-   - Mark batch completed
-   - Record statistics
+3. **Resource Management**
+   - Just-in-time proxy assignment
+   - Session creation/cleanup
+   - Rate limit handling
+   - Error recovery
 
-### 3.2. Key Conflict Mitigations
+### 3.2. Proxy Management
 
-1. **Batch Isolation**
-   - One active batch per niche
-   - System verification before creation
+1. **Assignment**
+   - Least recently used selection
+   - Health verification
+   - Rate limit checking
+   - Session validation
 
-2. **Rate Protection**
+2. **Monitoring**
+   - Success/failure tracking
+   - Rate limit detection
+   - Error counting
+   - Health scoring
+
+3. **Recovery**
+   - Automatic retry on failure
+   - Rate limit cooldown
+   - Session refresh
    - Proxy rotation
-   - Thread limits
-   - Per-minute caps
 
-3. **Data Consistency**
-   - Single-batch-per-niche rule
-   - Database-level locking where needed
+## 4. Data Flows
 
-## 4. Example Workflow
+### 4.1. Story Check Flow
 
-1. **Setup**
-   - Configure story targets
-   - Add proxies
-   - Set rate limits
+1. **Initialization**
+   - Create batch record
+   - Associate selected profiles
+   - Set initial state
 
-2. **Profile Import**
-   - Import usernames
-   - Assign to niche
-   - Handle duplicates
+2. **Processing**
+   - Get available worker
+   - Check story status
+   - Update profile stats
+   - Release worker
 
-3. **Batch Processing**
-   - Auto/manual trigger
-   - Profile checking
-   - Results updating
+3. **Completion**
+   - Update final stats
+   - Clean up resources
+   - Mark batch done
 
-4. **Results Management**
-   - Monitor detections
-   - Copy usernames
-   - Track statistics
+### 4.2. Resource Flow
 
-## 5. System Features
+1. **Worker Assignment**
+   - Get from pool
+   - Verify health
+   - Assign proxy/session
+   - Monitor usage
 
-### 5.1. Logging
+2. **Session Management**
+   - Create as needed
+   - Track usage
+   - Handle expiration
+   - Clean up after use
 
-**Key Metrics**:
-- Batch statistics
-- Import results
-- Error tracking
-- Proxy performance
+3. **Proxy Rotation**
+   - Track usage counts
+   - Handle rate limits
+   - Manage cooldowns
+   - Balance load
 
-### 5.2. Security
+## 5. Error Handling
 
-- Cloud hosting
-- HTTPS encryption
-- Credential management
-- Single-user focus
+### 5.1. Story Check Errors
 
-## 6. Conflict Summary
+1. **Rate Limits**
+   - Detection
+   - Cooldown period
+   - Retry with new proxy
+   - Update proxy stats
 
-### Critical Conflicts & Solutions
+2. **Network Errors**
+   - Automatic retry
+   - Proxy rotation
+   - Error counting
+   - Status preservation
 
-1. **Data Integrity**
-   - Skip duplicate usernames
-   - Single batch per niche
-   - Row-level locking
+### 5.2. Resource Errors
+
+1. **Proxy Failures**
+   - Health check failure
+   - Connection timeout
+   - Authentication error
+   - Rate limit exceeded
+
+2. **Session Errors**
+   - Invalid session
+   - Expired cookie
+   - Login required
+   - Session cleanup
+
+## 6. Best Practices
+
+### 6.1. Performance
+
+1. **Resource Usage**
+   - Efficient proxy rotation
+   - Session reuse when possible
+   - Proper cleanup
+   - Load balancing
+
+2. **Rate Limiting**
+   - Per-proxy tracking
+   - Global rate limits
+   - Cooldown periods
+   - Retry backoff
+
+### 6.2. Reliability
+
+1. **Error Recovery**
+   - Automatic retries
+   - State preservation
+   - Resource cleanup
+   - Error logging
+
+2. **Data Consistency**
+   - Transaction handling
+   - State validation
+   - Progress tracking
+   - Stats accuracy
+
+## 7. Monitoring
+
+### 7.1. System Health
+
+1. **Metrics**
+   - Active batches
+   - Worker utilization
+   - Proxy health
+   - Error rates
 
 2. **Performance**
-   - Pagination for large datasets
-   - Proxy rotation
-   - Rate limiting
+   - Response times
+   - Success rates
+   - Resource usage
+   - Queue depth
 
-3. **User Actions**
-   - Batch cancellation handling
-   - Safe proxy management
-   - Target limit enforcement
+### 7.2. Error Tracking
 
-4. **System Limits**
-   - Thread count restrictions
-   - Reasonable story targets
-   - Auto-purge implementation
+1. **Logging**
+   - Error details
+   - Stack traces
+   - State information
+   - Recovery actions
 
-## Conclusion
-
-This workflow ensures:
-1. Data consistency through clear rules
-2. Conflict prevention via systematic checks
-3. Efficient processing with rate protection
-4. User-friendly operation with safety guards
-
-The system provides robust, scalable Instagram story monitoring while maintaining data integrity and preventing common operational issues.
+2. **Analysis**
+   - Error patterns
+   - Proxy performance
+   - Rate limit impact
+   - Success rates

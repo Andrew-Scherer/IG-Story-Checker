@@ -10,9 +10,12 @@ from sqlalchemy_utils import database_exists, create_database
 
 def init_db():
     """Initialize development and test databases"""
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     databases = [
-        'postgresql://localhost/ig_story_checker',
-        'postgresql://localhost/ig_story_checker_test'
+        os.getenv('SQLALCHEMY_DATABASE_URI'),
+        f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_TEST_DB')}"
     ]
     
     for db_url in databases:

@@ -44,9 +44,6 @@ class BaseModel(Base):
         """Generate tablename from class name"""
         return cls.__name__.lower() + 's'
     
-    # Primary key
-    id = Column(Integer, primary_key=True)
-    
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
@@ -117,8 +114,19 @@ class BaseModel(Base):
         Returns:
             dict: Dictionary representation of model
         """
-        return {
-            'id': self.id,  # Don't convert to string, let model handle ID format
+        # Get primary key columns
+        mapper = inspect(self.__class__)
+        pk_columns = [col.key for col in mapper.primary_key]
+        
+        # Build base dictionary with primary keys
+        result = {}
+        for pk in pk_columns:
+            result[pk] = getattr(self, pk)
+            
+        # Add timestamps
+        result.update({
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+        })
+        
+        return result

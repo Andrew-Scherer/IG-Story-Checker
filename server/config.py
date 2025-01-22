@@ -38,10 +38,26 @@ class BaseConfig:
 class DevelopmentConfig(BaseConfig):
     """Development configuration"""
     DEBUG = True
-    SQLALCHEMY_DATABASE_URI = os.getenv(
-        'DATABASE_URL',
-        'postgresql://localhost/ig_story_checker_dev'
-    )
+    
+    def __init__(self):
+        super().__init__()
+        # Get database URI from environment variables
+        uri = os.getenv('SQLALCHEMY_DATABASE_URI')
+        if not uri:
+            db_user = os.getenv('POSTGRES_USER')
+            db_pass = os.getenv('POSTGRES_PASSWORD')
+            db_host = os.getenv('POSTGRES_HOST', 'localhost')
+            db_port = os.getenv('POSTGRES_PORT', '5432')
+            db_name = os.getenv('POSTGRES_DB')
+            
+            # Ensure db_port is not 'None'
+            if db_port == 'None':
+                db_port = '5432'
+            
+            uri = f'postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}'
+        
+        print(f"Development SQLALCHEMY_DATABASE_URI: {uri}")
+        self.SQLALCHEMY_DATABASE_URI = uri
     
     # Development-specific settings
     CORS_ORIGINS = ['http://localhost:3000']
@@ -50,9 +66,16 @@ class DevelopmentConfig(BaseConfig):
 class TestingConfig(BaseConfig):
     """Testing configuration"""
     TESTING = True
+    SERVER_NAME = 'localhost:5000'
     SQLALCHEMY_DATABASE_URI = os.getenv(
         'TEST_DATABASE_URL',
-        'postgresql://localhost/ig_story_checker_test'
+        'postgresql://{user}:{password}@{host}:{port}/{database}'.format(
+            user=os.getenv('TEST_DB_USER', 'postgres'),
+            password=os.getenv('TEST_DB_PASSWORD', ''),
+            host=os.getenv('TEST_DB_HOST', 'localhost'),
+            port=os.getenv('TEST_DB_PORT', '5432'),
+            database=os.getenv('TEST_DB_NAME', 'ig_story_checker_test')
+        )
     )
     
     # Testing-specific settings
@@ -90,4 +113,5 @@ config = {
 def get_config():
     """Get configuration class based on environment"""
     env = os.getenv('FLASK_ENV', 'development')
-    return config.get(env, config['default'])
+    config_class = config.get(env, config['default'])
+    return config_class()  # Return an instance of the config class

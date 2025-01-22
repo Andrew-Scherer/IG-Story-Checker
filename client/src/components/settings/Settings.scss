@@ -1,27 +1,37 @@
-@import '../../styles/variables';
+@import '../../styles/variables.scss';
 
 .settings {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  gap: $spacing-6;
-  padding: $spacing-6;
-  background: $background-primary;
-  border-radius: $border-radius;
-  box-shadow: $shadow-sm;
-  overflow: auto;
+  gap: $spacing-8;
+  padding: $spacing-4;
+  max-width: 800px;
+  margin: 0 auto;
 
   &__section {
-    background: white;
-    padding: $spacing-6;
-    border-radius: $border-radius;
+    background-color: $background-primary;
     border: 1px solid $border-light;
+    border-radius: $border-radius-lg;
+    padding: $spacing-6;
 
     h2 {
-      margin: 0 0 $spacing-4;
-      font-size: $font-size-lg;
+      font-size: $font-size-xl;
       font-weight: $font-weight-semibold;
       color: $text-color;
+      margin-bottom: $spacing-4;
+    }
+  }
+
+  &__subsection {
+    margin-top: $spacing-6;
+    padding-top: $spacing-4;
+    border-top: 1px solid $border-light;
+
+    h3 {
+      font-size: $font-size-lg;
+      font-weight: $font-weight-medium;
+      color: $text-color;
+      margin-bottom: $spacing-4;
     }
   }
 
@@ -36,19 +46,76 @@
     }
 
     label {
-      font-size: $font-size-base;
-      color: $text-color;
       font-weight: $font-weight-medium;
+      color: $text-color;
     }
 
-    input {
-      width: 200px;
+    input[type="number"] {
+      width: 120px;
     }
   }
 
   &__help-text {
     font-size: $font-size-sm;
-    color: $text-muted;
+    color: $text-secondary;
     margin-top: $spacing-1;
+  }
+
+  &__toggle {
+    display: flex;
+    gap: $spacing-2;
+  }
+
+  &__hours {
+    display: flex;
+    align-items: center;
+    gap: $spacing-2;
+
+    span {
+      color: $text-secondary;
+      padding: 0 $spacing-2;
+    }
+
+    input {
+      width: 80px;
+    }
+  }
+
+  &__loading {
+    text-align: center;
+    color: $text-secondary;
+    padding: $spacing-4;
+  }
+
+  &__error {
+    color: $danger-color;
+    background-color: rgba($danger-color, 0.1);
+    padding: $spacing-4;
+    border-radius: $border-radius;
+    margin-bottom: $spacing-4;
+  }
+
+  // Responsive adjustments
+  @media (max-width: $breakpoint-md) {
+    padding: $spacing-2;
+
+    &__section {
+      padding: $spacing-4;
+    }
+
+    &__field {
+      input[type="number"] {
+        width: 100%;
+      }
+    }
+
+    &__hours {
+      flex-direction: column;
+      align-items: flex-start;
+
+      input {
+        width: 100%;
+      }
+    }
   }
 }

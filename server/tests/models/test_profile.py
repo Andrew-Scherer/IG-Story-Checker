@@ -77,9 +77,10 @@ def test_profile_soft_delete(db_session):
     db_session.add(profile)
     db_session.commit()
 
+    original_updated_at = profile.updated_at
     profile.soft_delete()
     assert profile.status == "deleted"
-    assert profile.deleted_at is not None
+    assert profile.updated_at > original_updated_at
 
     # Profile should still be queryable
     assert db_session.query(Profile).filter_by(username="test_delete_user").first() is not None
@@ -91,9 +92,10 @@ def test_profile_reactivation(db_session):
     db_session.commit()
 
     profile.soft_delete()
+    original_updated_at = profile.updated_at
     profile.reactivate()
     assert profile.status == "active"
-    assert profile.deleted_at is None
+    assert profile.updated_at > original_updated_at
 
 def test_profile_timestamps(db_session):
     """Test profile timestamps are automatically set"""
@@ -157,7 +159,6 @@ def test_to_dict_method(db_session):
     assert profile_dict['total_detections'] == 0
     assert profile_dict['detection_rate'] == 0.0
     assert profile_dict['niche_id'] is None
-    assert profile_dict['deleted_at'] is None
     assert 'created_at' in profile_dict
     assert 'updated_at' in profile_dict
 

@@ -1,341 +1,99 @@
 """
-Test Batch Models
-Tests batch processing state and profile results tracking
+Tests for Batch model focusing on core functionality
 """
 
 import pytest
-from datetime import datetime
-from sqlalchemy.exc import IntegrityError
+from datetime import datetime, timezone
+from models import Batch, Profile
 
-from models.batch import Batch, BatchProfile
-from models.niche import Niche
-from models.profile import Profile
+def test_batch_creation_with_proxy_assignment(app, db_session, create_niche, create_profile, create_proxy_session, assign_proxy_session):
+    """Test creating a new batch with proxy assignment"""
+    # Create test niche
+    niche = create_niche("Test Niche")
+    
+    # Create test profiles
+    profile1 = create_profile('test1', niche_id=str(niche.id))
+    profile2 = create_profile('test2', niche_id=str(niche.id))
 
-def test_create_batch(db_session):
-    """Test basic batch creation"""
-    # Create niche first
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
-    db_session.commit()
+    # Create proxy-session pair
+    proxy, session = create_proxy_session()
 
     # Create batch
-    batch = Batch(niche_id=niche.id)
+    batch = Batch(niche_id=str(niche.id), profile_ids=[profile1.id, profile2.id])
     db_session.add(batch)
     db_session.commit()
 
+    # Assign proxy-session to batch profiles
+    assign_proxy_session(batch, proxy, session)
+
+    # Verify batch
     assert batch.id is not None
-    assert batch.niche_id == niche.id
-    assert batch.status == 'pending'
-    assert batch.start_time is None
-    assert batch.end_time is None
-    assert batch.total_profiles == 0
-    assert batch.completed_profiles == 0
-    assert batch.successful_checks == 0
-    assert batch.failed_checks == 0
+    assert batch.niche_id == str(niche.id)
+    assert batch.status == 'queued'
+    assert batch.total_profiles == 2
+    assert batch.checked_profiles == 0
+    assert batch.stories_found == 0
     assert isinstance(batch.created_at, datetime)
-    assert isinstance(batch.updated_at, datetime)
+    assert batch.created_at.tzinfo is not None  # Just verify it's timezone-aware
 
-def test_batch_niche_relationship(db_session):
-    """Test batch relationship with niche"""
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
-    db_session.commit()
+    # Verify proxy assignments
+    for batch_profile in batch.profiles:
+        assert batch_profile.proxy_id == proxy.id
+        assert batch_profile.session_id == session.id
 
-    batch = Batch(niche_id=niche.id)
+def test_batch_status_transitions(app, db_session, create_niche, create_profile, create_proxy_session, assign_proxy_session):
+    """Test batch status transitions during processing"""
+    # Create test data
+    niche = create_niche("Test Niche")
+    profile = create_profile('test1', niche_id=str(niche.id))
+    proxy, session = create_proxy_session()
+
+    # Create and setup batch
+    batch = Batch(niche_id=str(niche.id), profile_ids=[profile.id])
     db_session.add(batch)
     db_session.commit()
+    assign_proxy_session(batch, proxy, session)
 
-    assert batch.niche == niche
-    assert batch in niche.batches
+    # Verify initial status
+    assert batch.status == 'queued'
 
-def test_batch_status_transitions(db_session):
-    """Test batch status transitions"""
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
+    # Start processing
+    batch.status = 'in_progress'
     db_session.commit()
+    assert batch.status == 'in_progress'
 
-    batch = Batch(niche_id=niche.id)
+    # Complete batch
+    batch.status = 'done'
+    db_session.commit()
+    assert batch.status == 'done'
+
+def test_batch_progress_tracking(app, db_session, create_niche, create_profile, create_proxy_session, assign_proxy_session):
+    """Test tracking batch progress during story checks"""
+    # Create test data
+    niche = create_niche("Test Niche")
+    profile1 = create_profile('test1', niche_id=str(niche.id))
+    profile2 = create_profile('test2', niche_id=str(niche.id))
+    proxy, session = create_proxy_session()
+
+    # Create and setup batch
+    batch = Batch(niche_id=str(niche.id), profile_ids=[profile1.id, profile2.id])
     db_session.add(batch)
     db_session.commit()
+    assign_proxy_session(batch, proxy, session)
 
-    # Test start
-    batch.start(session=db_session)
-    assert batch.status == 'running'
-    assert batch.start_time is not None
-    assert batch.end_time is None
-
-    # Test complete
-    batch.complete(session=db_session)
-    assert batch.status == 'completed'
-    assert batch.end_time is not None
-
-    # Test fail
-    batch = Batch(niche_id=niche.id)
-    db_session.add(batch)
-    db_session.commit()
-    
-    batch.start()
-    batch.fail("Test error", session=db_session)
-    assert batch.status == 'failed'
-    assert batch.end_time is not None
-
-def test_batch_profile_creation(db_session):
-    """Test creating batch profiles"""
-    # Setup
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
+    # Simulate checking first profile (story found)
+    batch.checked_profiles += 1
+    batch.stories_found += 1
     db_session.commit()
 
-    profile = Profile(username="test_user", niche=niche)
-    db_session.add(profile)
+    assert batch.checked_profiles == 1
+    assert batch.stories_found == 1
+    assert batch.completion_rate == 50.0
+
+    # Simulate checking second profile (no story)
+    batch.checked_profiles += 1
     db_session.commit()
 
-    batch = Batch(niche_id=niche.id)
-    db_session.add(batch)
-    db_session.commit()
-
-    # Create batch profile
-    batch_profile = BatchProfile(
-        batch_id=batch.id,
-        profile_id=profile.id
-    )
-    db_session.add(batch_profile)
-    db_session.commit()
-
-    assert batch_profile.id is not None
-    assert batch_profile.batch_id == batch.id
-    assert batch_profile.profile_id == profile.id
-    assert batch_profile.status == 'pending'
-    assert batch_profile.has_story is False
-    assert batch_profile.error is None
-    assert batch_profile.processed_at is None
-
-def test_batch_profile_completion(db_session):
-    """Test batch profile completion flow"""
-    # Setup
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
-    db_session.commit()
-
-    profile = Profile(username="test_user", niche=niche)
-    db_session.add(profile)
-    db_session.commit()
-
-    batch = Batch(niche_id=niche.id)
-    db_session.add(batch)
-    db_session.commit()
-
-    batch_profile = BatchProfile(
-        batch_id=batch.id,
-        profile_id=profile.id
-    )
-    db_session.add(batch_profile)
-    db_session.commit()
-
-    # Test completion with story
-    batch_profile.complete(has_story=True, session=db_session)
-    assert batch_profile.status == 'completed'
-    assert batch_profile.has_story is True
-    assert batch_profile.processed_at is not None
-    assert batch_profile.error is None
-
-    # Verify batch stats updated
-    batch.update_stats(session=db_session)
-    assert batch.total_profiles == 1
-    assert batch.completed_profiles == 1
-    assert batch.successful_checks == 1
-    assert batch.failed_checks == 0
-
-def test_batch_profile_failure(db_session):
-    """Test batch profile failure handling"""
-    # Setup
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
-    db_session.commit()
-
-    profile = Profile(username="test_user", niche=niche)
-    db_session.add(profile)
-    db_session.commit()
-
-    batch = Batch(niche_id=niche.id)
-    db_session.add(batch)
-    db_session.commit()
-
-    batch_profile = BatchProfile(
-        batch_id=batch.id,
-        profile_id=profile.id
-    )
-    db_session.add(batch_profile)
-    db_session.commit()
-
-    # Test failure
-    error_msg = "Test error message"
-    batch_profile.fail(error_msg, session=db_session)
-    assert batch_profile.status == 'failed'
-    assert batch_profile.error == error_msg
-    assert batch_profile.processed_at is not None
-    assert batch_profile.has_story is False
-
-    # Verify batch stats updated
-    batch.update_stats()
-    assert batch.total_profiles == 1
-    assert batch.completed_profiles == 0
-    assert batch.successful_checks == 0
-    assert batch.failed_checks == 1
-
-def test_batch_stats_multiple_profiles(db_session):
-    """Test batch statistics with multiple profiles"""
-    # Setup
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
-    db_session.commit()
-
-    batch = Batch(niche_id=niche.id)
-    db_session.add(batch)
-    db_session.commit()
-
-    # Create multiple profiles with different outcomes
-    profiles = []
-    for i in range(5):
-        profile = Profile(username=f"test_user_{i}", niche=niche)
-        db_session.add(profile)
-        db_session.commit()
-        profiles.append(profile)
-
-    # Add batch profiles with different states
-    batch_profiles = []
-    for i, profile in enumerate(profiles):
-        bp = BatchProfile(batch_id=batch.id, profile_id=profile.id)
-        db_session.add(bp)
-        db_session.commit()
-        batch_profiles.append(bp)
-
-    # Set different states
-    batch_profiles[0].complete(has_story=True, session=db_session)  # Success with story
-    batch_profiles[1].complete(has_story=False, session=db_session)  # Success without story
-    batch_profiles[2].fail("Error 1", session=db_session)  # Failed
-    batch_profiles[3].fail("Error 2", session=db_session)  # Failed
-    # Last one remains pending
-
-    # Verify stats
-    batch.update_stats()
-    assert batch.total_profiles == 5
-    assert batch.completed_profiles == 2
-    assert batch.successful_checks == 1
-    assert batch.failed_checks == 2
-
-def test_get_active_batch_for_niche(db_session):
-    """Test getting active batch for niche"""
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
-    db_session.commit()
-
-    # Create completed batch
-    completed_batch = Batch(niche_id=niche.id)
-    db_session.add(completed_batch)
-    db_session.commit()
-    completed_batch.start(session=db_session)
-    completed_batch.complete(session=db_session)
-
-    # Create running batch
-    running_batch = Batch(niche_id=niche.id)
-    db_session.add(running_batch)
-    db_session.commit()
-    running_batch.start(session=db_session)
-
-    # Test get active
-    active = Batch.get_active_for_niche(niche.id, session=db_session)
-    assert active == running_batch
-
-def test_batch_serialization(db_session):
-    """Test batch serialization to dictionary"""
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
-    db_session.commit()
-
-    batch = Batch(niche_id=niche.id)
-    db_session.add(batch)
-    db_session.commit()
-
-    batch_dict = batch.to_dict()
-    assert isinstance(batch_dict, dict)
-    assert batch_dict['id'] == batch.id
-    assert batch_dict['niche_id'] == niche.id
-    assert batch_dict['status'] == 'pending'
-    assert batch_dict['start_time'] is None
-    assert batch_dict['end_time'] is None
-    assert batch_dict['total_profiles'] == 0
-    assert batch_dict['completed_profiles'] == 0
-    assert batch_dict['successful_checks'] == 0
-    assert batch_dict['failed_checks'] == 0
-    assert 'created_at' in batch_dict
-    assert 'updated_at' in batch_dict
-
-def test_batch_profile_serialization(db_session):
-    """Test batch profile serialization to dictionary"""
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
-    db_session.commit()
-
-    profile = Profile(username="test_user", niche=niche)
-    db_session.add(profile)
-    db_session.commit()
-
-    batch = Batch(niche_id=niche.id)
-    db_session.add(batch)
-    db_session.commit()
-
-    batch_profile = BatchProfile(
-        batch_id=batch.id,
-        profile_id=profile.id
-    )
-    db_session.add(batch_profile)
-    db_session.commit()
-
-    bp_dict = batch_profile.to_dict()
-    assert isinstance(bp_dict, dict)
-    assert bp_dict['id'] == batch_profile.id
-    assert bp_dict['batch_id'] == batch.id
-    assert bp_dict['profile_id'] == profile.id
-    assert bp_dict['status'] == 'pending'
-    assert bp_dict['has_story'] is False
-    assert bp_dict['error'] is None
-    assert bp_dict['processed_at'] is None
-    assert 'created_at' in bp_dict
-    assert 'updated_at' in bp_dict
-
-def test_batch_requires_niche(db_session):
-    """Test batch requires valid niche"""
-    batch = Batch(niche_id=None)
-    db_session.add(batch)
-    with pytest.raises(IntegrityError):
-        db_session.flush()
-    db_session.rollback()
-
-def test_batch_profile_requires_batch_and_profile(db_session):
-    """Test batch profile requires both batch and profile"""
-    niche = Niche(name="Test Niche")
-    db_session.add(niche)
-    db_session.commit()
-
-    profile = Profile(username="test_user", niche=niche)
-    db_session.add(profile)
-    db_session.commit()
-
-    batch = Batch(niche_id=niche.id)
-    db_session.add(batch)
-    db_session.commit()
-
-    # Test missing batch_id
-    bp = BatchProfile(batch_id=None, profile_id=profile.id)
-    db_session.add(bp)
-    with pytest.raises(IntegrityError):
-        db_session.flush()
-    db_session.rollback()
-
-    # Test missing profile_id
-    bp = BatchProfile(batch_id=batch.id, profile_id=None)
-    db_session.add(bp)
-    with pytest.raises(IntegrityError):
-        db_session.flush()
-    db_session.rollback()
+    assert batch.checked_profiles == 2
+    assert batch.stories_found == 1
+    assert batch.completion_rate == 100.0

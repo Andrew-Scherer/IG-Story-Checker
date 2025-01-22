@@ -1,102 +1,9 @@
 """
 Settings Models
-Manages proxy configurations and system settings
+Manages system settings
 """
 
-import uuid
-from datetime import datetime
 from .base import BaseModel, db
-
-class Proxy(BaseModel):
-    """Proxy configuration model"""
-    __tablename__ = 'proxies'
-
-    # Primary key
-    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    
-    # Proxy configuration
-    host = db.Column(db.String(255), nullable=False)
-    port = db.Column(db.Integer, nullable=False)
-    username = db.Column(db.String(255), nullable=True)
-    password = db.Column(db.String(255), nullable=True)
-    
-    # Status
-    is_active = db.Column(db.Boolean, default=True)
-    last_used = db.Column(db.DateTime, nullable=True)
-    last_tested = db.Column(db.DateTime, nullable=True)
-    is_working = db.Column(db.Boolean, default=False)
-    error = db.Column(db.String(255), nullable=True)
-    
-    # Statistics
-    total_requests = db.Column(db.Integer, default=0)
-    failed_requests = db.Column(db.Integer, default=0)
-    average_response_time = db.Column(db.Float, nullable=True)
-
-    def __init__(self, host, port, username=None, password=None):
-        """Initialize a new proxy"""
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-
-    @property
-    def url(self):
-        """Get proxy URL"""
-        auth = f'{self.username}:{self.password}@' if self.username else ''
-        return f'http://{auth}{self.host}:{self.port}'
-
-    def update_stats(self, success, response_time=None):
-        """Update proxy statistics"""
-        self.last_used = datetime.utcnow()
-        self.total_requests += 1
-        
-        if not success:
-            self.failed_requests += 1
-        
-        if response_time:
-            if self.average_response_time:
-                self.average_response_time = (
-                    self.average_response_time * 0.9 + response_time * 0.1
-                )
-            else:
-                self.average_response_time = response_time
-        
-        self.save()
-
-    def test_connection(self):
-        """Test proxy connection"""
-        # TODO: Implementation
-        # 1. Try connecting to test URL
-        # 2. Update status
-        # 3. Record results
-        pass
-
-    @classmethod
-    def get_next_available(cls):
-        """Get next available proxy using round-robin"""
-        return cls.query.filter_by(
-            is_active=True,
-            is_working=True
-        ).order_by(
-            cls.last_used.asc().nullsfirst()
-        ).first()
-
-    def to_dict(self):
-        """Convert proxy to dictionary"""
-        return {
-            **super().to_dict(),
-            'host': self.host,
-            'port': self.port,
-            'username': self.username,
-            'is_active': self.is_active,
-            'is_working': self.is_working,
-            'last_used': self.last_used.isoformat() if self.last_used else None,
-            'last_tested': self.last_tested.isoformat() if self.last_tested else None,
-            'error': self.error,
-            'total_requests': self.total_requests,
-            'failed_requests': self.failed_requests,
-            'average_response_time': self.average_response_time
-        }
 
 class SystemSettings(BaseModel):
     """System-wide settings model"""
@@ -146,6 +53,7 @@ class SystemSettings(BaseModel):
     def to_dict(self):
         """Convert settings to dictionary"""
         return {
+            **super().to_dict(),
             'profiles_per_minute': self.profiles_per_minute,
             'max_threads': self.max_threads,
             'default_batch_size': self.default_batch_size,

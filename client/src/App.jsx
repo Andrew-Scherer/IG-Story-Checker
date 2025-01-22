@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import AppLayout from './components/layout/AppLayout';
-import NicheList from './components/niche/NicheList';
-import BatchResults from './components/batch/BatchResults';
+import NicheFeed from './components/niche/NicheFeed';
+import BatchTable from './components/batch/BatchTable';
 import MasterList from './components/master/MasterList';
 import Settings from './components/settings/Settings';
 import ProxyManager from './components/proxy/ProxyManager';
@@ -13,9 +13,9 @@ const App = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'niche':
-        return <NicheList />;
+        return <NicheFeed />;
       case 'batch':
-        return <BatchResults />;
+        return <BatchTable />;
       case 'master':
         return <MasterList />;
       case 'proxies':
@@ -33,7 +33,7 @@ const App = () => {
       onTabChange={setActiveTab}
       tabs={[
         { id: 'niche', label: 'Niche Feed' },
-        { id: 'batch', label: 'Batch + Results' },
+        { id: 'batch', label: 'Batch' },
         { id: 'master', label: 'Master List' },
         { id: 'proxies', label: 'Proxy Management' },
         { id: 'settings', label: 'Settings' }

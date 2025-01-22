@@ -1,143 +1,101 @@
-@import '../../styles/variables';
+@import '../../styles/variables.scss';
 
 .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.5rem 1rem;
-  border: 1px solid transparent;
+  gap: $spacing-2;
+  border: none;
   border-radius: $border-radius;
-  font-family: inherit;
-  font-weight: 500;
-  line-height: 1.5;
-  text-align: center;
+  font-weight: $font-weight-medium;
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
-  user-select: none;
+  transition: all 0.2s ease;
   position: relative;
-  white-space: nowrap;
-
-  &:focus {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba($primary-color, 0.25);
-  }
-
-  &:disabled,
-  &--disabled {
-    opacity: 0.65;
+  min-width: 80px;
+  
+  &:disabled {
     cursor: not-allowed;
+    opacity: 0.7;
   }
-
-  // Sizes
-  &--small {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.875rem;
-  }
-
-  &--medium {
-    padding: 0.5rem 1rem;
-    font-size: 1rem;
-  }
-
-  &--large {
-    padding: 0.75rem 1.5rem;
-    font-size: 1.125rem;
-  }
-
+  
   // Variants
-  &--default {
-    background-color: $neutral-color;
-    border-color: darken($neutral-color, 10%);
-    color: $text-color;
-
-    &:hover:not(:disabled) {
-      background-color: darken($neutral-color, 5%);
-      border-color: darken($neutral-color, 15%);
-    }
-
-    &:active:not(:disabled) {
-      background-color: darken($neutral-color, 10%);
-      border-color: darken($neutral-color, 20%);
-    }
-  }
-
   &--primary {
     background-color: $primary-color;
-    border-color: darken($primary-color, 10%);
-    color: $white;
-
+    color: white;
+    
     &:hover:not(:disabled) {
       background-color: darken($primary-color, 5%);
-      border-color: darken($primary-color, 15%);
     }
-
+    
     &:active:not(:disabled) {
       background-color: darken($primary-color, 10%);
-      border-color: darken($primary-color, 20%);
     }
   }
-
+  
   &--secondary {
-    background-color: $secondary-color;
-    border-color: darken($secondary-color, 10%);
-    color: $white;
-
+    background-color: transparent;
+    border: 1px solid $border-light;
+    color: $text-color;
+    
     &:hover:not(:disabled) {
-      background-color: darken($secondary-color, 5%);
-      border-color: darken($secondary-color, 15%);
+      background-color: rgba($primary-color, 0.05);
+      border-color: $primary-color;
     }
-
+    
     &:active:not(:disabled) {
-      background-color: darken($secondary-color, 10%);
-      border-color: darken($secondary-color, 20%);
+      background-color: rgba($primary-color, 0.1);
     }
   }
-
+  
   &--danger {
     background-color: $danger-color;
-    border-color: darken($danger-color, 10%);
-    color: $white;
-
+    color: white;
+    
     &:hover:not(:disabled) {
       background-color: darken($danger-color, 5%);
-      border-color: darken($danger-color, 15%);
     }
-
+    
     &:active:not(:disabled) {
       background-color: darken($danger-color, 10%);
-      border-color: darken($danger-color, 20%);
     }
   }
-
+  
+  &--text {
+    background-color: transparent;
+    color: $primary-color;
+    padding: 0;
+    min-width: auto;
+    
+    &:hover:not(:disabled) {
+      color: darken($primary-color, 10%);
+      text-decoration: underline;
+    }
+  }
+  
+  // Sizes
+  &--small {
+    height: 28px;
+    padding: 0 $spacing-2;
+    font-size: $font-size-sm;
+  }
+  
+  &--medium {
+    height: 36px;
+    padding: 0 $spacing-3;
+    font-size: $font-size-base;
+  }
+  
+  &--large {
+    height: 44px;
+    padding: 0 $spacing-4;
+    font-size: $font-size-lg;
+  }
+  
   // Loading state
   &--loading {
-    color: transparent !important;
-  }
-
-  &__spinner {
-    position: absolute;
-    width: 1em;
-    height: 1em;
-    border: 2px solid currentColor;
-    border-radius: 50%;
-    border-right-color: transparent;
-    animation: button-spin 0.75s linear infinite;
-  }
-
-  &__text {
-    transition: opacity 0.2s ease-in-out;
-
-    &--loading {
-      opacity: 0;
+    .button__text--loading {
+      opacity: 0.5;
+      margin-left: $spacing-2;
     }
-  }
-}
-
-@keyframes button-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
   }
 }

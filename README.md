@@ -1,225 +1,218 @@
 # Instagram Story Checker
 
-A tool designed to import, organize, check, and monitor Instagram profiles for active stories. The workflow is centered around a Master List, ensuring centralized data management for usernames, niche assignments, and statuses.
+A tool designed to efficiently check and monitor Instagram stories across multiple profiles. The system uses a niche-based organization system with robust batch processing capabilities.
 
 ## 1. Overview
 
-This tool provides comprehensive functionality for:
-- **Importing** Instagram profiles
-- **Organizing** profiles by niche
-- **Checking** for active stories
-- **Monitoring** story activity in real-time
+Core functionality:
+- **Profile Management**: Import and organize Instagram profiles
+- **Batch Processing**: Check stories across multiple profiles
+- **Progress Monitoring**: Track story detection results
+- **Resource Management**: Efficient proxy and session handling
 
-## 2. Tab 1: Niche Feed
+## 2. Interface
 
-The Niche Feed tab manages Instagram profiles grouped by niche, featuring two main panels and auxiliary features.
+### 2.1. Niche Feed Tab
 
-### 2.1. Niche List (Left Panel)
-
-**Purpose**: Organize profiles by niche and allow easy category switching.
+**Purpose**: Manage profiles and initiate story checks.
 
 **Features**:
-1. **Scrollable List of Niches**: Displays all available niche categories
-2. **Actions**:
-   - Add Niche: Create new categories
-   - Rename Niche: Edit existing names
-   - Delete Niche: Remove categories (profiles remain in master list)
-   - Reorder Niches: Change display order
+1. **Profile List**
+   - Multi-select functionality
+   - Profile statistics display
+   - Niche filtering
+   - Sort controls
 
-**Master List Integration**: Each niche corresponds to a column value in the master list.
+2. **File Importer**
+   - Drag-and-drop support
+   - Username validation
+   - Duplicate handling
+   - Error reporting
 
-### 2.2. Profile List (Right Panel)
+3. **Story Check Controls**
+   - "Check Selected Profiles" button
+   - Selection count display
+   - Batch creation trigger
 
-**Purpose**: Display Instagram profiles belonging to the selected niche.
+### 2.2. Batch Tab
 
-**Columns**:
-1. Instagram URL
-2. Instagram Username
-3. Date Last Checked
-4. Date Last Detected
-5. Total Number of Story Checks
-6. Total Number of Times a Story Was Detected
+**Purpose**: Monitor and control batch processing.
 
-**Actions**:
-- Bulk Mark as Deleted
-- Assign to Niche
+**Features**:
+1. **Batch Table**
+   - Multi-select support
+   - Progress tracking
+   - Status display
+   - Success rate calculation
 
-### 2.3. File Importer
+2. **Batch Controls**
+   - Start selected batches
+   - Stop selected batches
+   - Delete selected batches
+   - Refresh button to update batch status and progress
 
-**Purpose**: Import `.txt` files containing Instagram usernames.
+3. **Status Tracking**
+   - Queued batches
+   - In-progress batches
+   - Completed batches
+   - Error states
 
-**Behavior**:
-- Validates against Master List
-- Skips existing usernames
-- Adds only new entries
+4. **Real-time Updates**
+   - Manual refresh option to update batch status, progress, and queue positions without page reload
 
-### 2.4. Filter and Sort Controls
+### 2.3. Settings Tab
 
-**Filters**:
-- Status (active/deleted)
+**Purpose**: System configuration and proxy management.
 
-**Sort Options**:
-1. Last Checked
-2. Last Detected
-3. Total Checks
-4. Times Detected
+**Features**:
+1. **Proxy Management**
+   - Add/remove proxies
+   - Health monitoring
+   - Rate limit configuration
+   - Session management
 
-## 3. Tab 2: Batch + Results
+2. **System Settings**
+   - Thread count control
+   - Rate limiting
+   - Retry configuration
+   - Error thresholds
 
-Manages batch processing and displays recent story detections.
+## 3. Core Workflows
 
-### 3.1. Batch Controls & Management
+### 3.1. Profile Selection & Batch Creation
 
-#### Batch Control Panel
-- **Manual Trigger** ("Run Batch Now" button)
-  - Niche selection
-  - Number of profiles selection
-- **Batch Status Indicators**
-  - Pending batches
-  - In-progress batches
-  - Completed batches
+1. **Select Profiles**
+   - Navigate to Niche Feed
+   - Use multi-select (click, shift-click, ctrl-click)
+   - View selection count
 
-#### Automatic Trigger
-Runs hourly at random minutes when:
-1. Results show fewer active stories than daily target
-2. No other batch for that niche is scheduled/running
+2. **Create Batch**
+   - Click "Check Selected Profiles"
+   - System creates batch
+   - Batch appears in Batch tab
 
-#### Batch Details
-- Niche assignment
-- Profile count
-- Progress tracking
-- Timestamps
-- Proxy/worker usage
+### 3.2. Batch Processing and Queueing
 
-### 3.2. Results Display
+1. **Start Processing**
+   - Select batches in Batch tab
+   - Click "Start Selected"
+   - System begins processing
+   - Batches are automatically queued if a batch is already running
 
-1. **Story Detections**
-   - Shows profiles with active stories (last 24 hours)
-2. **Filters**
-   - By niche
-   - By detection timestamp
-3. **Bulk Operations**
-   - Select multiple profiles
-   - Copy usernames to clipboard
-4. **Auto-Purge**
-   - 24-hour expiration
+2. **Automatic Queue Management**
+   - Batches are processed in order
+   - When a batch completes, the next batch in queue automatically starts
+   - Queue is continuously reordered to maintain efficiency
 
-## 4. Tab 3: Settings
+3. **Monitor Progress**
+   - View progress in real-time
+   - Track success rates
+   - Handle any errors
+   - Observe queue position for pending batches
 
-Global configurations for tool operation.
+4. **View Results**
+   - Check completion status
+   - View story detection results
+   - Track profile statistics
+   - Review batch processing history
 
-### 4.1. Master List Management
+### 3.3. Resource Management
 
-**View Master List Table**:
-1. Username
-2. Niche
-3. Status
-4. Last Updated
+1. **Proxy Assignment**
+   - Just-in-time proxy selection
+   - Rate limit handling
+   - Error recovery
 
-### 4.2. Daily Story Targets
+2. **Session Management**
+   - Session creation/cleanup
+   - Cookie handling
+   - Error tracking
 
-- Configure Stories Needed Per Day per niche
-- Drives automatic batch triggering
+## 4. Data Management
 
-### 4.3. Rate Limiting
-
-Configure:
-- Profiles per minute
-- Thread count
-
-### 4.4. Proxy Management
-
-- Add/remove proxies
-- Format: `ip:port:user:pass`
-
-## 5. Master List Integration
-
-### 5.1. Centralized Data
-Single source of truth for all profile data.
-
-### 5.2. Data Fields
+### 4.1. Profile Data
 - Username
-- Niche
-- Status
-- Date Last Checked
-- Date Last Detected
-- Total Checks
-- Total Times Detected
+- Niche assignment
+- Story check history
+- Detection statistics
 
-## 6. Batching
+### 4.2. Batch Data
+- Associated profiles
+- Progress tracking
+- Success rates
+- Error states
 
-### 6.1. How Batching Works
+### 4.3. Resource Data
+- Proxy health
+- Session status
+- Rate limit tracking
+- Error counts
 
-1. **Batch Creation**
-   - Based on niche, status, and check history
-2. **Batch Size**
-   - Configurable
-3. **Batch Execution**
-   - Proxy-based
-   - Rate-limited
-4. **Batch Status**
-   - Lifecycle tracking
-   - Archival system
+## 5. Error Handling
 
-### 6.2. Batch Triggers
+### 5.1. Story Check Errors
+- Rate limit detection
+- Network error recovery
+- Invalid profile handling
 
-1. **Automatic**
-   - Hourly checks
-2. **Manual**
-   - User-initiated
+### 5.2. Resource Errors
+- Proxy failures
+- Session expiration
+- Connection timeouts
 
-### 6.3. Batch Prioritization
-- Longest idle profiles first
+### 5.3. System Errors
+- Database errors
+- API errors
+- Resource cleanup
 
-### 6.4. Retention
-- 7-day retention for completed batches
-- Automatic archival
+## 6. Best Practices
 
-### 6.5. Configuration
-- Batch sizing
-- Rate limits
-- Success rate tracking
-- Proxy settings
+### 6.1. Batch Processing
+- Reasonable batch sizes
+- Monitor success rates
+- Handle errors gracefully
 
-## 7. Example Workflow
+### 6.2. Resource Usage
+- Efficient proxy rotation
+- Session reuse when possible
+- Proper cleanup
 
-1. **Initial Check**
-   - Niche: Fitness
-   - Target: 20 stories
-   - Current: 10 stories
-   - Shortfall: 10 stories
-   - Success rate: 15%
-   - Batch size: 100 profiles
+### 6.3. Error Recovery
+- Automatic retries
+- Resource rotation
+- Error logging
 
-2. **Processing**
-   - Sequential/parallel checking
-   - Real-time results
+## 7. Performance
 
-3. **Post-Processing**
-   - Results display
-   - Master list updates
+### 7.1. System Health
+- Monitor proxy health
+- Track success rates
+- Watch error patterns
 
-4. **Next Batch**
-   - Automatic/manual triggering
+### 7.2. Resource Optimization
+- Efficient proxy usage
+- Session management
+- Database operations
 
-## 8. Deployment & Access Control
+## 8. Security
 
-### Cloud Hosting
-- Scalable cloud deployment
-- Remote accessibility
+### 8.1. Data Protection
+- Secure credential storage
+- Session management
+- Error handling
 
-### Security
-- Username/password authentication
-- Role-based access (optional)
-- HTTPS encryption
-- Strong password requirements
-- Optional 2FA
+### 8.2. Access Control
+- Local deployment
+- Resource isolation
+- Error boundaries
 
 ## Conclusion
 
-The tool provides three main interfaces:
-1. **Niche Feed**: Profile management
-2. **Batch + Results**: Processing and monitoring
-3. **Settings**: System configuration
+The Instagram Story Checker provides:
+1. Efficient profile management
+2. Robust batch processing
+3. Comprehensive monitoring
+4. Resource optimization
+5. Error resilience
 
-Designed for scalability, security, and user-friendly operation in near real-time Instagram story monitoring.
+Designed for reliability and maintainability in checking Instagram stories at scale.

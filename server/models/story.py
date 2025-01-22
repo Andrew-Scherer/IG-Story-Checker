@@ -24,11 +24,10 @@ class StoryResult(BaseModel):
     
     # Optional metadata
     screenshot_url = db.Column(db.String(255), nullable=True)
-    story_metadata = db.Column(db.JSON, nullable=True)  # Renamed from metadata to story_metadata
     
     # Relationships
     profile = db.relationship('Profile', back_populates='story_results')
-    batch = db.relationship('Batch', backref=db.backref('story_results', lazy=True))
+    batch = db.relationship('Batch', back_populates='story_results')
 
     def __init__(self, profile_id, batch_id, retention_hours=24):
         """Initialize a new story result"""
@@ -80,24 +79,15 @@ class StoryResult(BaseModel):
         self.expires_at = datetime.now(UTC) + timedelta(hours=hours)
         self.save()
 
-    def add_metadata(self, data):
-        """Add additional metadata to story result"""
-        if self.story_metadata:
-            self.story_metadata.update(data)
-        else:
-            self.story_metadata = data
-        self.save()
-
     def to_dict(self):
         """Convert story result to dictionary"""
         return {
             **super().to_dict(),
             'profile_id': self.profile_id,
             'batch_id': self.batch_id,
-            'detected_at': self.detected_at.isoformat(),
-            'expires_at': self.expires_at.isoformat(),
+            'detected_at': self.detected_at.isoformat() if self.detected_at else None,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None,
             'screenshot_url': self.screenshot_url,
-            'story_metadata': self.story_metadata,
             'is_expired': self.is_expired
         }
 

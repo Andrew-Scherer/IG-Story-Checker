@@ -1,0 +1,50 @@
+.batch-log-modal {
+  .loading {
+    text-align: center;
+    padding: 20px;
+  }
+
+  .log-table {
+    width: 100%;
+    border-collapse: collapse;
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+
+    th {
+      background-color: #f2f2f2;
+      font-weight: bold;
+    }
+
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+  }
+
+  .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 20px;
+
+    button {
+      margin: 0 10px;
+      padding: 5px 10px;
+      background-color: #f2f2f2;
+      border: 1px solid #ddd;
+      cursor: pointer;
+
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    }
+
+    span {
+      margin: 0 10px;
+    }
+  }
+}

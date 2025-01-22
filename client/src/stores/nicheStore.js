@@ -1,77 +1,101 @@
-import create from 'zustand';
-
-// Initial dummy data for testing
-const dummyNiches = [
-  { id: 1, name: 'Fitness', order: 1 },
-  { id: 2, name: 'Fashion', order: 2 },
-  { id: 3, name: 'Food', order: 3 }
-];
+import { create } from 'zustand';
+import { niches } from '../api';
 
 const useNicheStore = create((set, get) => ({
   // State
-  niches: dummyNiches, // Initialize with dummy data
+  niches: [],
   selectedNicheId: null,
   loading: false,
   error: null,
-
+  
   // Actions
-  setNiches: (niches) => set({ niches }),
+  fetchNiches: async () => {
+    try {
+      console.log('=== Fetching Niches ===');
+      console.log('1. Setting loading state...');
+      set({ loading: true, error: null });
+      
+      console.log('2. Making API request to /api/niches...');
+      const response = await niches.list();
+      console.log('3. API Response:', response);
+      
+      console.log('4. Updating store with niches...');
+      set({ niches: response });
+      console.log('5. Store updated successfully');
+    } catch (error) {
+      console.error('!!! Error fetching niches !!!');
+      console.error('Error details:', error);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      if (error.response) {
+        console.error('Server response:', error.response);
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      set({ error: error.message });
+    } finally {
+      set({ loading: false });
+    }
+  },
   
-  setSelectedNicheId: (id) => set({ selectedNicheId: id }),
+  setSelectedNicheId: (id) => {
+    set({ selectedNicheId: id });
+  },
   
-  addNiche: (niche) => {
-    const niches = get().niches;
-    const newNiche = {
-      ...niche,
-      id: Date.now(), // Simple ID generation
-      order: niches.length + 1
-    };
-    set({ niches: [...niches, newNiche] });
+  createNiche: async (data) => {
+    try {
+      set({ loading: true, error: null });
+      const response = await niches.create(data);
+      set(state => ({
+        niches: [...state.niches, response]
+      }));
+      return response;
+    } catch (error) {
+      console.error('Failed to create niche:', error);
+      set({ error: error.message });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+  
+  updateNiche: async (id, data) => {
+    try {
+      set({ loading: true, error: null });
+      const response = await niches.update(id, data);
+      set(state => ({
+        niches: state.niches.map(n => 
+          n.id === id ? response : n
+        )
+      }));
+      return response;
+    } catch (error) {
+      console.error('Failed to update niche:', error);
+      set({ error: error.message });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+  
+  deleteNiche: async (id) => {
+    try {
+      set({ loading: true, error: null });
+      await niches.delete(id);
+      set(state => ({
+        niches: state.niches.filter(n => n.id !== id),
+        selectedNicheId: state.selectedNicheId === id ? null : state.selectedNicheId
+      }));
+    } catch (error) {
+      console.error('Failed to delete niche:', error);
+      set({ error: error.message });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
   },
 
-  updateNiche: (id, updates) => {
-    const niches = get().niches.map(niche =>
-      niche.id === id ? { ...niche, ...updates } : niche
-    );
-    set({ niches });
-  },
-
-  deleteNiche: (id) => {
-    const niches = get().niches.filter(niche => niche.id !== id);
-    set({ 
-      niches,
-      selectedNicheId: get().selectedNicheId === id ? null : get().selectedNicheId
-    });
-  },
-
-  reorderNiches: (fromIndex, toIndex) => {
-    const niches = [...get().niches];
-    const [movedNiche] = niches.splice(fromIndex, 1);
-    niches.splice(toIndex, 0, movedNiche);
-    
-    // Update order property for each niche
-    const updatedNiches = niches.map((niche, index) => ({
-      ...niche,
-      order: index + 1
-    }));
-    
-    set({ niches: updatedNiches });
-  },
-
-  setLoading: (loading) => set({ loading }),
-  setError: (error) => set({ error }),
-  clearError: () => set({ error: null }),
-
-  // Selectors
-  getSortedNiches: () => {
-    const { niches } = get();
-    return [...niches].sort((a, b) => a.order - b.order);
-  },
-
-  getSelectedNiche: () => {
-    const { niches, selectedNicheId } = get();
-    return niches.find(niche => niche.id === selectedNicheId) || null;
-  }
+  getNiches: () => get().niches
 }));
 
 export default useNicheStore;

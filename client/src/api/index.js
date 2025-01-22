@@ -1,161 +1,141 @@
 import axios from 'axios';
 
-// Constants
-const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY = 1000;
-const RETRY_STATUS_CODES = [408, 500, 502, 503, 504];
+export const API_URL = 'http://localhost:5000/api';
 
-// Custom error class for API errors
 class ApiError extends Error {
-  constructor(message, status, data = {}) {
+  constructor(message, response) {
     super(message);
     this.name = 'ApiError';
-    this.status = status;
-    Object.assign(this, data);
+    this.response = response;
+  }
+
+  static fromResponse(response) {
+    const message = response?.data?.message || response?.statusText || 'Unknown error';
+    return new ApiError(message, response);
   }
 }
 
-// Request cancellation map
-const cancelTokens = new Map();
+const axiosInstance = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
 
-// Create API instance factory to allow recreation in tests
-export const createApi = () => {
-  const instance = axios.create({
-    baseURL: process.env.REACT_APP_API_URL || 'http://localhost:3000/api',
-    timeout: 30000,
-    headers: {
-      'Content-Type': 'application/json'
+axiosInstance.interceptors.request.use(
+  config => {
+    console.log(`=== API Request ===`);
+    console.log(`${config.method.toUpperCase()} ${config.url}`);
+    console.log('Request headers:', config.headers);
+    console.log('Request data:', config.data);
+    return config;
+  },
+  error => {
+    console.error('!!! Request interceptor error !!!', error);
+    return Promise.reject(error);
+  }
+);
+
+axiosInstance.interceptors.response.use(
+  response => {
+    console.log(`=== API Response ===`);
+    console.log(`Status: ${response.status}`);
+    console.log('Response headers:', response.headers);
+    console.log('Response data:', response.data);
+    return response;
+  },
+  error => {
+    console.error('!!! API Error !!!');
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response headers:', error.response.headers);
+      console.error('Response data:', error.response.data);
+      console.error('Full error object:', error);
+      throw ApiError.fromResponse(error.response);
     }
-  });
+    console.error('Network error details:', error);
+    throw new ApiError('Network Error');
+  }
+);
 
-  // Setup interceptors
-  instance.interceptors.request.use(
-    config => {
-      // Cancel any existing requests with the same ID
-      if (config.cancelId) {
-        if (cancelTokens.has(config.cancelId)) {
-          cancelTokens.get(config.cancelId).cancel('Request canceled');
-        }
-        const source = axios.CancelToken.source();
-        cancelTokens.set(config.cancelId, source);
-        config.cancelToken = source.token;
+export const niches = {
+  list: () => axiosInstance.get('/niches').then(res => res.data),
+  create: (data) => axiosInstance.post('/niches', data).then(res => res.data),
+  update: (id, data) => axiosInstance.put(`/niches/${id}`, data).then(res => res.data),
+  delete: (id) => axiosInstance.delete(`/niches/${id}`).then(res => res.data),
+  import: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return axiosInstance.post('/niches/import', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
       }
-      return config;
-    },
-    error => Promise.reject(error)
-  );
-
-  instance.interceptors.response.use(
-    response => response.data,
-    error => {
-      if (axios.isCancel(error)) {
-        throw new ApiError('Request canceled', 0, { canceled: true });
-      }
-
-      const status = error.response?.status;
-      const data = error.response?.data;
-
-      // Handle specific error types
-      switch (status) {
-        case 400:
-          throw new ApiError('Validation Error', status, { fields: data.fields });
-        case 401:
-          throw new ApiError('Unauthorized', status);
-        case 429:
-          throw new ApiError('Rate Limited', status, { retryAfter: data.retryAfter });
-        default:
-          throw new ApiError(
-            data?.error || error.message || 'Unknown Error',
-            status || 0
-          );
-      }
-    }
-  );
-
-  // Add custom methods
-  instance.setAuthToken = function(token) {
-    this.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-  };
-
-  instance.cancelRequest = function(id) {
-    if (cancelTokens.has(id)) {
-      cancelTokens.get(id).cancel();
-      cancelTokens.delete(id);
-    }
-  };
-
-  // Add endpoint implementations
-  instance.niches = {
-    create: (niche) => instance.post('/niches', niche),
-    update: (id, niche) => instance.put(`/niches/${id}`, niche),
-    delete: (id) => instance.delete(`/niches/${id}`),
-    reorder: (order) => instance.patch('/niches/reorder', { order }),
-    addProfiles: (nicheId, profileIds) => 
-      instance.post(`/niches/${nicheId}/profiles`, { profileIds })
-  };
-
-  instance.profiles = {
-    create: (profile) => instance.post('/profiles', profile),
-    get: (id) => instance.get(`/profiles/${id}`),
-    update: (id, profile) => instance.put(`/profiles/${id}`, profile),
-    delete: (id) => instance.delete(`/profiles/${id}`),
-    bulkCreate: (profiles) => instance.post('/profiles/bulk', { profiles }),
-    updateStatus: (id, status) => 
-      instance.patch(`/profiles/${id}/status`, { status })
-  };
-
-  instance.batches = {
-    create: (batch) => instance.post('/batches', batch),
-    getProgress: (id) => instance.get(`/batches/${id}/progress`),
-    getResults: (id) => instance.get(`/batches/${id}/results`)
-  };
-
-  instance.settings = {
-    addProxy: (proxy) => instance.post('/settings/proxies', proxy),
-    update: (settings) => instance.put('/settings', settings),
-    updateTargets: (targets) => instance.put('/settings/targets', targets)
-  };
-
-  instance.health = {
-    check: () => instance.get('/health'),
-    checkProxy: (id) => instance.get(`/health/proxies/${id}`)
-  };
-
-  // Apply retry mechanism
-  const originalRequest = instance.request;
-  instance.request = async function(config) {
-    let retryCount = 0;
-    const maxRetries = 3;
-    const initialDelay = 1000;
-
-    while (true) {
-      try {
-        return await originalRequest.call(instance, config);
-      } catch (error) {
-        const status = error.response?.status;
-
-        if (
-          retryCount >= maxRetries ||
-          !RETRY_STATUS_CODES.includes(status) ||
-          status === 401 ||
-          status === 404 ||
-          status === 400
-        ) {
-          throw error;
-        }
-
-        const delay = initialDelay * Math.pow(2, retryCount);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        retryCount++;
-      }
-    }
-  };
-
-  return instance;
+    }).then(res => res.data);
+  }
 };
 
-// Export default instance
-export const api = createApi();
+export const profiles = {
+  list: () => axiosInstance.get('/profiles').then(res => res.data),
+  create: (data) => axiosInstance.post('/profiles', data).then(res => res.data),
+  update: (id, data) => axiosInstance.put(`/profiles/${id}`, data).then(res => res.data),
+  delete: (id) => axiosInstance.delete(`/profiles/${id}`).then(res => res.data),
+  import: (nicheId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return axiosInstance.post(`/profiles/niches/${nicheId}/import`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    }).then(res => res.data);
+  },
+  refreshStories: () => axiosInstance.post('/profiles/refresh-stories').then(res => res.data)
+};
 
+export const batches = {
+  list: () => axiosInstance.get('/batches').then(res => res.data),
+  create: (data) => axiosInstance.post('/batches', data).then(res => res.data),
+  start: (data) => {
+    console.log('Sending start request with data:', data);
+    return axiosInstance.post('/batches/start', data)
+      .then(res => {
+        console.log('Received response from start request:', res.data);
+        return res.data;
+      })
+      .catch(error => {
+        console.error('Error in start request:', error);
+        throw error;
+      });
+  },
+  stop: (data) => axiosInstance.post('/batches/stop', data).then(res => res.data),
+  delete: (data) => axiosInstance.delete('/batches', { data: { batch_ids: data.batch_ids } }).then(res => res.data),
+  getLogs: (batchId, startTime, endTime, limit, offset) => 
+    axiosInstance.get(`/batches/${batchId}/logs`, { params: { start_time: startTime, end_time: endTime, limit, offset } }).then(res => res.data)
+};
+
+export const settings = {
+  get: () => axiosInstance.get('/settings').then(res => res.data),
+  update: (data) => axiosInstance.put('/settings', data).then(res => res.data)
+};
+
+export const proxies = {
+  list: () => axiosInstance.get('/proxies').then(res => res.data),
+  create: (data) => axiosInstance.post('/proxies', data).then(res => res.data),
+  delete: (id) => axiosInstance.delete(`/proxies/${id}`).then(res => res.data),
+  updateStatus: (id, data) => axiosInstance.patch(`/proxies/${id}/status`, data).then(res => res.data),
+  addSession: (proxyId, data) => axiosInstance.post(`/proxies/${proxyId}/sessions`, data).then(res => res.data),
+  updateSession: (proxyId, sessionId, data) => axiosInstance.put(`/proxies/${proxyId}/sessions/${sessionId}`, data).then(res => res.data),
+  removeSession: (proxyId, sessionId) => axiosInstance.delete(`/proxies/${proxyId}/sessions/${sessionId}`).then(res => res.data),
+  test: (id) => axiosInstance.post(`/proxies/${id}/test`).then(res => res.data),
+  updateHealth: (id, data) => axiosInstance.post(`/proxies/${id}/health`, data).then(res => res.data),
+  updateLimit: (id, data) => axiosInstance.patch(`/proxies/${id}/limit`, data).then(res => res.data)
+};
+
+const api = {
+  niches,
+  profiles,
+  batches,
+  settings,
+  proxies
+};
 
 export default api;

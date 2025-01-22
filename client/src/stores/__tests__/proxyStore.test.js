@@ -1,231 +1,253 @@
 import { proxyStore } from '../proxyStore';
+import { proxies } from '../../api';
+
+// Mock the API module
+jest.mock('../../api', () => ({
+  proxies: {
+    list: jest.fn(),
+    create: jest.fn(),
+    delete: jest.fn(),
+    updateStatus: jest.fn(),
+    updateHealth: jest.fn(),
+    test: jest.fn()
+  }
+}));
 
 describe('proxyStore', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     proxyStore.setState({
       proxies: [],
       loading: false,
-      error: null
+      error: null,
+      rotationSettings: {
+        enabled: false,
+        interval: 60,
+        lastRotation: null
+      }
     });
   });
 
-  describe('Proxy-Session Management', () => {
-    it('should add a new proxy with session', () => {
-      const proxy = {
-        id: 1,
-        host: '192.168.1.1',
-        port: 8080,
-        username: 'testuser',
-        sessions: [{
-          id: 1,
-          session: 'test-session',
-          status: 'active'
-        }]
-      };
-
-      proxyStore.getState().addProxy(proxy);
-      
-      const expectedProxy = {
-        ...proxy,
-        healthHistory: []
-      };
-      expect(proxyStore.getState().proxies).toContainEqual(expectedProxy);
-    });
-
-    it('should update proxy session', () => {
-      const proxy = {
-        id: 1,
-        host: '192.168.1.1',
-        port: 8080,
-        sessions: [{
-          id: 1,
-          session: 'old-session',
-          status: 'active'
-        }]
-      };
-      
-      proxyStore.getState().addProxy(proxy);
-      
-      const updatedSession = {
-        id: 1,
-        session: 'new-session',
-        status: 'disabled'
-      };
-      
-      proxyStore.getState().updateSession(1, 1, updatedSession);
-      
-      const updatedProxy = proxyStore.getState().proxies.find(p => p.id === 1);
-      expect(updatedProxy.sessions[0]).toEqual(updatedSession);
-    });
-
-    it('should remove proxy session', () => {
-      const proxy = {
-        id: 1,
-        host: '192.168.1.1',
-        port: 8080,
-        sessions: [{
-          id: 1,
-          session: 'test-session',
-          status: 'active'
-        }]
-      };
-      
-      proxyStore.getState().addProxy(proxy);
-      proxyStore.getState().removeSession(1, 1);
-      
-      const updatedProxy = proxyStore.getState().proxies.find(p => p.id === 1);
-      expect(updatedProxy.sessions).toHaveLength(0);
-    });
-  });
-
-  describe('Status Management', () => {
-    it('should update proxy status', () => {
-      const proxy = {
-        id: 1,
-        host: '192.168.1.1',
-        port: 8080,
-        status: 'active'
-      };
-      
-      proxyStore.getState().addProxy(proxy);
-      proxyStore.getState().updateProxyStatus(1, 'disabled');
-      
-      const updatedProxy = proxyStore.getState().proxies.find(p => p.id === 1);
-      expect(updatedProxy.status).toBe('disabled');
-    });
-
-    it('should handle bulk status updates', () => {
-      const proxies = [
-        { id: 1, host: '192.168.1.1', port: 8080, status: 'active' },
-        { id: 2, host: '192.168.1.2', port: 8080, status: 'active' }
+  describe('Initial Loading', () => {
+    it('should load proxies successfully', async () => {
+      const mockProxies = [
+        { id: 1, ip: '192.168.1.1', port: 8080 },
+        { id: 2, ip: '192.168.1.2', port: 8081 }
       ];
-      
-      proxies.forEach(proxy => proxyStore.getState().addProxy(proxy));
-      proxyStore.getState().updateBulkStatus([1, 2], 'disabled');
-      
-      const updatedProxies = proxyStore.getState().proxies;
-      expect(updatedProxies.every(p => p.status === 'disabled')).toBe(true);
+      proxies.list.mockResolvedValue(mockProxies);
+
+      await proxyStore.getState().loadProxies();
+
+      expect(proxyStore.getState().proxies).toHaveLength(2);
+      expect(proxyStore.getState().loading).toBe(false);
+      expect(proxyStore.getState().error).toBeNull();
+      // Verify performance metrics initialization
+      expect(proxyStore.getState().proxies[0].performanceMetrics).toEqual({
+        successRate: 0,
+        avgLatency: 0,
+        requestCount: 0,
+        failureCount: 0,
+        lastUsed: null
+      });
+    });
+
+    it('should handle loading errors', async () => {
+      const error = new Error('Network error');
+      proxies.list.mockRejectedValue({ response: { data: { message: 'Network error' } } });
+
+      await expect(proxyStore.getState().loadProxies()).rejects.toThrow();
+      expect(proxyStore.getState().loading).toBe(false);
+      expect(proxyStore.getState().error).toBeTruthy();
     });
   });
 
-  describe('Health Monitoring', () => {
-    it('should update health metrics', () => {
+  describe('Proxy Management', () => {
+    it('should add proxy with performance tracking', async () => {
+      const newProxy = {
+        ip: '192.168.1.1',
+        port: 8080,
+        username: 'test',
+        password: 'pass'
+      };
+      proxies.create.mockResolvedValue({ ...newProxy, id: 1 });
+
+      await proxyStore.getState().addProxy(newProxy);
+
+      expect(proxyStore.getState().proxies).toHaveLength(1);
+      expect(proxyStore.getState().proxies[0].performanceMetrics).toBeDefined();
+    });
+
+    it('should remove proxy and clean up', async () => {
+      const proxy = { id: 1, ip: '192.168.1.1', port: 8080 };
+      proxyStore.setState({ proxies: [proxy] });
+      proxies.delete.mockResolvedValue();
+
+      await proxyStore.getState().removeProxy(1);
+
+      expect(proxyStore.getState().proxies).toHaveLength(0);
+    });
+  });
+
+  describe('Performance Monitoring', () => {
+    it('should update performance metrics', () => {
       const proxy = {
         id: 1,
-        host: '192.168.1.1',
+        ip: '192.168.1.1',
         port: 8080,
-        health: {
-          status: 'healthy',
-          latency: 100,
-          uptime: 99.9,
-          lastCheck: new Date().toISOString()
+        performanceMetrics: {
+          successRate: 0,
+          avgLatency: 0,
+          requestCount: 0,
+          failureCount: 0,
+          lastUsed: null
         }
       };
-      
-      proxyStore.getState().addProxy(proxy);
-      
-      const newHealth = {
-        status: 'degraded',
-        latency: 500,
-        uptime: 95.5,
-        lastCheck: new Date().toISOString()
+      proxyStore.setState({ proxies: [proxy] });
+
+      const newMetrics = {
+        successRate: 95,
+        avgLatency: 150,
+        requestCount: 100
       };
-      
-      proxyStore.getState().updateHealth(1, newHealth);
-      
-      const updatedProxy = proxyStore.getState().proxies.find(p => p.id === 1);
-      expect(updatedProxy.health).toEqual(newHealth);
+      proxyStore.getState().updatePerformanceMetrics(1, newMetrics);
+
+      const updatedProxy = proxyStore.getState().proxies[0];
+      expect(updatedProxy.performanceMetrics.successRate).toBe(95);
+      expect(updatedProxy.performanceMetrics.avgLatency).toBe(150);
+      expect(updatedProxy.performanceMetrics.requestCount).toBe(100);
+      expect(updatedProxy.performanceMetrics.lastUsed).toBeTruthy();
     });
 
-    it('should track health history', () => {
+    it('should track health history with limit', async () => {
       const proxy = {
         id: 1,
-        host: '192.168.1.1',
+        ip: '192.168.1.1',
         port: 8080,
-        health: {
-          status: 'healthy',
-          latency: 100,
-          uptime: 99.9,
-          lastCheck: new Date().toISOString()
-        },
         healthHistory: []
       };
-      
-      proxyStore.getState().addProxy(proxy);
-      
-      const newHealth = {
-        status: 'degraded',
-        latency: 500,
-        uptime: 95.5,
-        lastCheck: new Date().toISOString()
-      };
-      
-      proxyStore.getState().updateHealth(1, newHealth);
-      
-      const updatedProxy = proxyStore.getState().proxies.find(p => p.id === 1);
-      expect(updatedProxy.healthHistory).toHaveLength(1);
-      expect(updatedProxy.healthHistory[0]).toEqual(proxy.health);
-    });
+      proxyStore.setState({ proxies: [proxy] });
 
-    it('should limit health history size', () => {
-      const proxy = {
-        id: 1,
-        host: '192.168.1.1',
-        port: 8080,
-        health: {
-          status: 'healthy',
-          latency: 100,
-          uptime: 99.9,
-          lastCheck: new Date().toISOString()
-        },
-        healthHistory: []
-      };
-      
-      proxyStore.getState().addProxy(proxy);
-      
-      // Add 11 health updates (max size is 10)
+      // Add 11 health updates (max is 10)
       for (let i = 0; i < 11; i++) {
-        proxyStore.getState().updateHealth(1, {
-          status: 'healthy',
-          latency: 100 + i,
-          uptime: 99.9,
-          lastCheck: new Date().toISOString()
-        });
+        const health = { status: 'healthy', latency: 100 + i };
+        proxies.updateHealth.mockResolvedValue(health);
+        await proxyStore.getState().updateHealth(1, health);
       }
-      
-      const updatedProxy = proxyStore.getState().proxies.find(p => p.id === 1);
+
+      const updatedProxy = proxyStore.getState().proxies[0];
       expect(updatedProxy.healthHistory).toHaveLength(10);
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle proxy not found errors', () => {
-      expect(() => {
-        proxyStore.getState().updateHealth(999, {
-          status: 'healthy',
-          latency: 100,
-          uptime: 99.9,
-          lastCheck: new Date().toISOString()
-        });
-      }).toThrow('Proxy not found');
-    });
-
-    it('should handle session not found errors', () => {
+  describe('Proxy Testing', () => {
+    it('should test proxy and update metrics', async () => {
       const proxy = {
         id: 1,
-        host: '192.168.1.1',
+        ip: '192.168.1.1',
         port: 8080,
-        sessions: []
+        performanceMetrics: {
+          successRate: 0,
+          avgLatency: 0,
+          requestCount: 0,
+          failureCount: 0,
+          lastUsed: null
+        }
       };
+      proxyStore.setState({ proxies: [proxy] });
+
+      const testResult = {
+        success: true,
+        avgLatency: 150,
+        successRate: 95,
+        requestCount: 100
+      };
+      proxies.test.mockResolvedValue(testResult);
+
+      const result = await proxyStore.getState().testProxy(1);
+
+      expect(result.success).toBe(true);
+      expect(result.latency).toBeDefined();
+      const updatedProxy = proxyStore.getState().proxies[0];
+      expect(updatedProxy.performanceMetrics.avgLatency).toBe(150);
+      expect(updatedProxy.performanceMetrics.successRate).toBe(95);
+    });
+
+    it('should handle test failures', async () => {
+      const proxy = {
+        id: 1,
+        ip: '192.168.1.1',
+        port: 8080,
+        performanceMetrics: {
+          successRate: 95,
+          avgLatency: 150,
+          requestCount: 100,
+          failureCount: 0,
+          lastUsed: null
+        }
+      };
+      proxyStore.setState({ proxies: [proxy] });
+
+      proxies.test.mockRejectedValue({ response: { data: { message: 'Connection failed' } } });
+
+      const result = await proxyStore.getState().testProxy(1);
+
+      expect(result.success).toBe(false);
+      const updatedProxy = proxyStore.getState().proxies[0];
+      expect(updatedProxy.performanceMetrics.failureCount).toBe(1);
+    });
+  });
+
+  describe('Proxy Rotation', () => {
+    it('should toggle rotation settings', () => {
+      proxyStore.getState().toggleRotation(true);
       
-      proxyStore.getState().addProxy(proxy);
+      const state = proxyStore.getState();
+      expect(state.rotationSettings.enabled).toBe(true);
+      expect(state.rotationSettings.lastRotation).toBeTruthy();
+    });
+
+    it('should update rotation interval', () => {
+      proxyStore.getState().setRotationInterval(120);
       
-      expect(() => {
-        proxyStore.getState().updateSession(1, 999, {
-          session: 'test',
-          status: 'active'
-        });
-      }).toThrow('Session not found');
+      expect(proxyStore.getState().rotationSettings.interval).toBe(120);
+    });
+  });
+
+  describe('Selectors', () => {
+    beforeEach(() => {
+      const proxies = [
+        { id: 1, status: 'active', health: { status: 'healthy' } },
+        { id: 2, status: 'active', health: { status: 'degraded' } },
+        { id: 3, status: 'disabled', health: { status: 'healthy' } }
+      ];
+      proxyStore.setState({ proxies });
+    });
+
+    it('should get proxy by id', () => {
+      const proxy = proxyStore.getState().getProxyById(1);
+      expect(proxy).toBeTruthy();
+      expect(proxy.id).toBe(1);
+    });
+
+    it('should get active proxies', () => {
+      const active = proxyStore.getState().getActiveProxies();
+      expect(active).toHaveLength(2);
+    });
+
+    it('should get healthy proxies', () => {
+      const healthy = proxyStore.getState().getHealthyProxies();
+      expect(healthy).toHaveLength(2);
+    });
+
+    it('should get degraded proxies', () => {
+      const degraded = proxyStore.getState().getDegradedProxies();
+      expect(degraded).toHaveLength(1);
+    });
+
+    it('should get available proxies', () => {
+      const available = proxyStore.getState().getAvailableProxies();
+      expect(available).toHaveLength(1);
+      expect(available[0].id).toBe(1);
     });
   });
 });

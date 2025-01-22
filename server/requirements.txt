@@ -1,11 +1,7 @@
-flask==3.0.0
-sqlalchemy==2.0.23
-pytest==7.4.3
-flask-sqlalchemy==3.1.1
-flask-migrate==4.0.5
-flask-cors==4.0.0
-flask-jwt-extended==4.6.0
-psycopg2-binary==2.9.9
+Flask==2.3.3
+Flask-Cors==4.0.0
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.21
+psycopg2-binary==2.9.7
 python-dotenv==1.0.0
-sqlalchemy-utils==0.41.1
-pytest-cov==4.1.0
+APScheduler==3.10.4

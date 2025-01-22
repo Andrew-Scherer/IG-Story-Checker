@@ -1,9 +1,8 @@
 """
-Flask Extensions
-Initializes Flask extensions for use across the application
+Flask extensions
 """
 
 from flask_sqlalchemy import SQLAlchemy
 
-# Create Flask-SQLAlchemy instance
+# Initialize SQLAlchemy
 db = SQLAlchemy()

@@ -1,24 +1,122 @@
 @import '../../styles/variables';
 
 .master-list {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  height: 100%;
   background: $background-primary;
   border-radius: $border-radius;
   box-shadow: $shadow-sm;
-  overflow: hidden;
 
-  &__list {
+  &__header {
+    padding: $spacing-4;
+    border-bottom: 1px solid $border-light;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: $spacing-4;
+  }
+
+  &__filters {
+    display: flex;
+    gap: $spacing-3;
+    align-items: center;
     flex: 1;
-    overflow-y: auto;
+
+    input, select {
+      padding: $spacing-2;
+      border: 1px solid $border-light;
+      border-radius: $border-radius;
+      font-size: $font-size-base;
+
+      &:focus {
+        outline: none;
+        border-color: $primary-color;
+      }
+    }
+
+    input {
+      min-width: 200px;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    gap: $spacing-2;
+    align-items: center;
+  }
+
+  &__username {
+    a {
+      color: $primary-color;
+      text-decoration: none;
+      
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+
+  &__status-select {
+    padding: $spacing-1 $spacing-2;
+    border: 1px solid $border-light;
+    border-radius: $border-radius;
+    background: $background-primary;
+    font-size: $font-size-sm;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-color;
+    }
+  }
+
+  &__bulk-actions {
+    display: flex;
+    gap: $spacing-3;
     padding: $spacing-4;
   }
 
-  &__item {
-    padding: $spacing-2;
-    font-size: $font-size-base;
-    color: $text-color;
+  &__loading {
+    padding: $spacing-4;
+    text-align: center;
+    color: $text-muted;
+  }
+
+  &__error {
+    padding: $spacing-4;
+    text-align: center;
+    color: $danger-color;
+  }
+
+  &__stats {
+    padding: $spacing-4;
+  }
+
+  &__stat {
+    display: flex;
+    justify-content: space-between;
+    padding: $spacing-2 0;
+    border-bottom: 1px solid $border-light;
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    label {
+      color: $text-muted;
+      font-weight: $font-weight-medium;
+    }
+  }
+
+  &__history {
+    padding: $spacing-4;
+  }
+
+  &__history-item {
+    display: flex;
+    align-items: center;
+    gap: $spacing-3;
+    padding: $spacing-2 0;
     border-bottom: 1px solid $border-light;
 
     &:last-child {
@@ -26,31 +124,36 @@
     }
   }
 
-  &__pagination {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: $spacing-4;
-    gap: $spacing-4;
-    border-top: 1px solid $border-light;
+  &__history-time {
+    color: $text-muted;
+    font-size: $font-size-sm;
   }
 
-  &__pagination-button {
-    padding: $spacing-2 $spacing-4;
-    border: 1px solid $border-light;
+  &__history-status {
+    padding: $spacing-1 $spacing-2;
     border-radius: $border-radius;
-    background: white;
-    color: $text-color;
-    cursor: pointer;
+    font-size: $font-size-sm;
+    font-weight: $font-weight-medium;
 
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+    &--success {
+      background: rgba($success-color, 0.1);
+      color: $success-color;
+    }
+
+    &--failure {
+      background: rgba($danger-color, 0.1);
+      color: $danger-color;
     }
   }
 
-  &__pagination-info {
+  &__history-duration {
     color: $text-muted;
-    font-size: $font-size-base;
+    font-size: $font-size-sm;
+  }
+
+  &__empty {
+    padding: $spacing-4;
+    text-align: center;
+    color: $text-muted;
   }
 }

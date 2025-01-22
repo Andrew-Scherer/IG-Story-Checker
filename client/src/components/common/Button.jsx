@@ -1,86 +1,59 @@
 import React from 'react';
-import classNames from 'classnames';
-import PropTypes from 'prop-types';
+import Spinner from './Spinner';
 import './Button.scss';
 
-const Button = React.forwardRef(({
+function Button({
   children,
-  className,
+  variant = 'primary',
+  size = 'medium',
   disabled = false,
   loading = false,
   onClick,
-  size = 'medium',
-  variant = 'default',
   type = 'button',
+  className = '',
   ...props
-}, ref) => {
-  const handleClick = (event) => {
-    if (!disabled && !loading && onClick) {
-      onClick(event);
-    }
-  };
+}) {
+  const variantClass = {
+    primary: 'button--primary',
+    secondary: 'button--secondary',
+    danger: 'button--danger',
+    text: 'button--text'
+  }[variant];
 
-  const handleKeyDown = (event) => {
-    if (!disabled && !loading && onClick && (event.key === 'Enter' || event.key === ' ')) {
-      event.preventDefault();
-      onClick(event);
-    }
-  };
+  const sizeClass = {
+    small: 'button--small',
+    medium: 'button--medium',
+    large: 'button--large'
+  }[size];
 
-  const buttonClasses = classNames(
-    'button',
-    `button--${variant}`,
-    `button--${size}`,
-    {
-      'button--loading': loading,
-      'button--disabled': disabled || loading
-    },
-    className
-  );
+  const isDisabled = disabled || loading;
 
   return (
     <button
-      ref={ref}
-      className={buttonClasses}
-      disabled={disabled || loading}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
       type={type}
+      className={`
+        button 
+        ${variantClass} 
+        ${sizeClass}
+        ${loading ? 'button--loading' : ''}
+        ${className}
+      `}
+      disabled={isDisabled}
+      onClick={!isDisabled ? onClick : undefined}
       {...props}
     >
       {loading && (
-        <span 
-          className="button__spinner"
-          data-testid="loading-spinner"
-          aria-hidden="true"
+        <Spinner 
+          size="small" 
+          inline 
+          light={variant === 'primary'} 
         />
       )}
-      <span className={loading ? 'button__text button__text--loading' : 'button__text'}>
+      <span className={loading ? 'button__text--loading' : ''}>
         {children}
       </span>
     </button>
   );
-});
-
-Button.displayName = 'Button';
-
-Button.propTypes = {
-  /** Button content */
-  children: PropTypes.node.isRequired,
-  /** Additional class names */
-  className: PropTypes.string,
-  /** Disabled state */
-  disabled: PropTypes.bool,
-  /** Loading state */
-  loading: PropTypes.bool,
-  /** Click handler */
-  onClick: PropTypes.func,
-  /** Button size */
-  size: PropTypes.oneOf(['small', 'medium', 'large']),
-  /** Button variant */
-  variant: PropTypes.oneOf(['default', 'primary', 'secondary', 'danger']),
-  /** Button type */
-  type: PropTypes.oneOf(['button', 'submit', 'reset'])
-};
+}
 
 export default Button;

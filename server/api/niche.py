@@ -3,21 +3,46 @@ Niche API Routes
 Handles HTTP endpoints for niche management
 """
 
-from flask import Blueprint, request, jsonify
+import traceback
+from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 from models.niche import Niche
-from models.base import db
+from extensions import db
 
 # Create blueprint
 niche_bp = Blueprint('niche', __name__)
 
-@niche_bp.route('/api/niches', methods=['GET'])
+@niche_bp.route('', methods=['GET'])
 def list_niches():
     """Get list of niches in display order"""
-    niches = Niche.get_ordered()
-    return jsonify([niche.to_dict() for niche in niches])
+    try:
+        current_app.logger.info("=== GET /api/niches ===")
+        current_app.logger.info("1. Checking database connection...")
+        db.session.execute(text('SELECT 1'))
+        
+        current_app.logger.info("2. Attempting to fetch ordered niches...")
+        niches = Niche.get_ordered()
+        current_app.logger.info(f"3. Found {len(niches) if niches else 0} niches")
+        
+        current_app.logger.info("4. Converting niches to dict...")
+        result = [niche.to_dict() for niche in niches]
+        current_app.logger.info("5. Successfully converted niches")
+        
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error("!!! Error in list_niches !!!")
+        current_app.logger.error(f"Error type: {type(e).__name__}")
+        current_app.logger.error(f"Error message: {str(e)}")
+        current_app.logger.error("Full traceback:", exc_info=True)
+        db.session.rollback()
+        return jsonify({
+            'error': str(e),
+            'type': type(e).__name__,
+            'traceback': traceback.format_exc()
+        }), 500
 
-@niche_bp.route('/api/niches/<niche_id>', methods=['GET'])
+@niche_bp.route('/<niche_id>', methods=['GET'])
 def get_niche(niche_id):
     """Get single niche by ID"""
     niche = db.session.get(Niche, niche_id)
@@ -26,23 +51,22 @@ def get_niche(niche_id):
     
     return jsonify(niche.to_dict())
 
-@niche_bp.route('/api/niches', methods=['POST'])
+@niche_bp.route('', methods=['POST'])
 def create_niche():
     """Create new niche"""
-    data = request.get_json()
-    
-    # Validate required fields
-    if 'name' not in data:
-        return jsonify({'error': 'name is required'}), 400
-    
     try:
-        # Create niche
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+            
+        if 'name' not in data:
+            return jsonify({'error': 'name is required'}), 400
+        
         niche = Niche(
             name=data['name'],
-            display_order=data.get('display_order')
+            order=data.get('order')
         )
         
-        # Save to database
         db.session.add(niche)
         db.session.commit()
         
@@ -55,7 +79,7 @@ def create_niche():
         else:
             return jsonify({'error': 'Niche already exists'}), 400
 
-@niche_bp.route('/api/niches/<niche_id>', methods=['PUT'])
+@niche_bp.route('/<niche_id>', methods=['PUT'])
 def update_niche(niche_id):
     """Update existing niche"""
     niche = db.session.get(Niche, niche_id)
@@ -65,7 +89,6 @@ def update_niche(niche_id):
     data = request.get_json()
     
     try:
-        # Update fields
         if 'name' in data:
             if not data['name'] or not data['name'].strip():
                 return jsonify({'error': 'Niche name cannot be empty'}), 400
@@ -83,19 +106,31 @@ def update_niche(niche_id):
         else:
             return jsonify({'error': 'Niche already exists'}), 400
 
-@niche_bp.route('/api/niches/<niche_id>', methods=['DELETE'])
+@niche_bp.route('/<niche_id>', methods=['DELETE'])
 def delete_niche(niche_id):
     """Delete niche"""
-    niche = db.session.get(Niche, niche_id)
-    if not niche:
-        return jsonify({'error': 'Niche not found'}), 404
-    
-    db.session.delete(niche)
-    db.session.commit()
-    
-    return '', 204
+    try:
+        niche = db.session.get(Niche, niche_id)
+        if not niche:
+            return jsonify({'error': 'Niche not found'}), 404
+        
+        # First, delete any batches associated with this niche
+        from models.batch import Batch
+        batches = Batch.query.filter_by(niche_id=niche_id).all()
+        for batch in batches:
+            db.session.delete(batch)
+        
+        # Now delete the niche
+        db.session.delete(niche)
+        db.session.commit()
+        
+        return '', 204
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
-@niche_bp.route('/api/niches/reorder', methods=['POST'])
+@niche_bp.route('/reorder', methods=['POST'])
 def reorder_niches():
     """Reorder niches"""
     data = request.get_json()

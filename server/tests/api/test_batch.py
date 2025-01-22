@@ -1,190 +1,316 @@
 """
-Batch API Tests
-Tests for batch processing endpoints
+Tests for batch API endpoints focusing on core functionality
 """
 
 import pytest
-from datetime import datetime, timedelta, UTC
-from models import Batch, BatchProfile, StoryResult
+import json
+from models import Batch, Profile, BatchProfile
+from extensions import db
 
-def test_get_batches_empty(client):
-    """Should return empty list when no batches exist"""
+def test_create_batch_with_profiles(client, db_session, create_niche, create_profile):
+    """Test creating a new batch with profiles"""
+    # Create test niche and profiles
+    niche = create_niche("Test Niche")
+    profile1 = create_profile('test1', niche_id=str(niche.id))
+    profile2 = create_profile('test2', niche_id=str(niche.id))
+
+    # Create batch
+    response = client.post('/api/batches', json={
+        'niche_id': str(niche.id),
+        'profile_ids': [profile1.id, profile2.id]
+    })
+    assert response.status_code == 201
+
+    data = json.loads(response.data)
+    assert data['niche_id'] == str(niche.id)
+    assert data['status'] == 'queued'
+    assert data['total_profiles'] == 2
+    assert data['completed_profiles'] == 0
+    assert data['successful_checks'] == 0
+    assert data['failed_checks'] == 0
+
+    # Verify batch profiles in database
+    batch = db_session.get(Batch, data['id'])
+    assert len(batch.profiles) == 2
+    for batch_profile in batch.profiles:
+        assert batch_profile.status == 'pending'
+        assert batch_profile.proxy_id is None  # Proxy assigned during processing
+        assert batch_profile.session_id is None  # Session assigned during processing
+
+def test_create_batch_validation(client, db_session, create_niche, create_profile):
+    """Test batch creation validation"""
+    niche = create_niche("Test Niche")
+    profile = create_profile('test1', niche_id=str(niche.id))
+
+    # Missing niche_id
+    response = client.post('/api/batches', json={
+        'profile_ids': [profile.id]
+    })
+    assert response.status_code == 400
+
+    # Missing profile_ids
+    response = client.post('/api/batches', json={
+        'niche_id': str(niche.id)
+    })
+    assert response.status_code == 400
+
+    # Empty profile_ids
+    response = client.post('/api/batches', json={
+        'niche_id': str(niche.id),
+        'profile_ids': []
+    })
+    assert response.status_code == 400
+
+def test_start_batch_processing(client, db_session, create_niche, create_profile):
+    """Test starting batch processing"""
+    # Create test data
+    niche = create_niche("Test Niche")
+    profile1 = create_profile('test1', niche_id=str(niche.id))
+    profile2 = create_profile('test2', niche_id=str(niche.id))
+
+    # Create two queued batches
+    queued_batch1 = Batch(niche_id=str(niche.id), profile_ids=[profile1.id])
+    queued_batch2 = Batch(niche_id=str(niche.id), profile_ids=[profile2.id])
+    db_session.add(queued_batch1)
+    db_session.add(queued_batch2)
+    db_session.commit()
+
+    # Start first queued batch
+    response = client.post('/api/batches/start', json={
+        'batch_ids': [queued_batch1.id]
+    })
+    assert response.status_code == 200
+
+    data = json.loads(response.data)
+    assert len(data) == 1
+    assert data[0]['id'] == queued_batch1.id
+    assert data[0]['status'] == 'in_progress'
+
+    # Verify first batch status in database
+    queued_batch1 = db_session.get(Batch, queued_batch1.id)
+    assert queued_batch1.status == 'in_progress'
+
+    # Verify batch profiles are updated
+    for batch_profile in queued_batch1.profiles:
+        assert batch_profile.status == 'pending'
+
+    # Try to start second batch (should fail)
+    response = client.post('/api/batches/start', json={
+        'batch_ids': [queued_batch2.id]
+    })
+    assert response.status_code == 409  # Conflict - another batch is running
+
+    # Verify second batch status remains queued
+    queued_batch2 = db_session.get(Batch, queued_batch2.id)
+    assert queued_batch2.status == 'queued'
+
+def test_complete_batch_workflow(client, db_session, create_niche, create_profile):
+    """Test complete workflow from selection to processing"""
+    # Create test data
+    niche = create_niche("Test Niche")
+    profiles = [create_profile(f'test{i}', niche_id=str(niche.id)) for i in range(5)]
+
+    # Create multiple batches
+    batches = [
+        Batch(niche_id=str(niche.id), profile_ids=[profiles[0].id, profiles[1].id]),
+        Batch(niche_id=str(niche.id), profile_ids=[profiles[2].id, profiles[3].id]),
+        Batch(niche_id=str(niche.id), profile_ids=[profiles[4].id])
+    ]
+    db_session.add_all(batches)
+    db_session.commit()
+
+    # Start selected batches (first two)
+    response = client.post('/api/batches/start', json={
+        'batch_ids': [batches[0].id, batches[1].id]
+    })
+    assert response.status_code == 200
+
+    data = json.loads(response.data)
+    assert len(data) == 2
+    assert {batch['id'] for batch in data} == {batches[0].id, batches[1].id}
+    assert all(batch['status'] == 'in_progress' for batch in data)
+
+    # Verify batch statuses in database
+    for i, batch in enumerate(batches):
+        batch = db_session.get(Batch, batch.id)
+        if i < 2:
+            assert batch.status == 'in_progress'
+            for batch_profile in batch.profiles:
+                assert batch_profile.status == 'pending'
+        else:
+            assert batch.status == 'queued'
+            for batch_profile in batch.profiles:
+                assert batch_profile.status == 'pending'
+
+def test_stop_batch_processing(client, db_session, create_niche, create_profile):
+    """Test stopping batch processing"""
+    # Create test data
+    niche = create_niche("Test Niche")
+    profile = create_profile('test1', niche_id=str(niche.id))
+
+    # Create and start batch
+    batch = Batch(niche_id=str(niche.id), profile_ids=[profile.id])
+    batch.status = 'in_progress'
+    db_session.add(batch)
+    db_session.commit()
+
+    # Stop batch
+    response = client.post('/api/batches/stop', json={
+        'batch_ids': [batch.id]
+    })
+    assert response.status_code == 200
+
+    data = json.loads(response.data)
+    assert len(data) == 1
+    assert data[0]['id'] == batch.id
+    assert data[0]['status'] == 'queued'
+
+    # Verify batch status in database
+    batch = db_session.get(Batch, batch.id)
+    assert batch.status == 'queued'
+
+def test_concurrent_batch_operations(client, db_session, create_niche, create_profile):
+    """Test handling concurrent batch operations"""
+    # Create test data
+    niche = create_niche("Test Niche")
+    profile1 = create_profile('test1', niche_id=str(niche.id))
+    profile2 = create_profile('test2', niche_id=str(niche.id))
+
+    # Create two batches
+    batch1 = Batch(niche_id=str(niche.id), profile_ids=[profile1.id])
+    batch2 = Batch(niche_id=str(niche.id), profile_ids=[profile2.id])
+    db_session.add_all([batch1, batch2])
+    db_session.commit()
+
+    # Start first batch
+    response = client.post('/api/batches/start', json={
+        'batch_ids': [batch1.id]
+    })
+    assert response.status_code == 200
+
+    # Try to start second batch while first is running
+    response = client.post('/api/batches/start', json={
+        'batch_ids': [batch2.id]
+    })
+    assert response.status_code == 409  # Conflict - another batch is running
+
+    # Stop first batch
+    response = client.post('/api/batches/stop', json={
+        'batch_ids': [batch1.id]
+    })
+    assert response.status_code == 200
+
+    # Now second batch should be able to start
+    response = client.post('/api/batches/start', json={
+        'batch_ids': [batch2.id]
+    })
+    assert response.status_code == 200
+
+def test_list_batches_with_stats(client, db_session, create_niche, create_profile):
+    """Test listing batches with stats"""
+    # Create test data
+    niche = create_niche("Test Niche")
+    profile = create_profile('test1', niche_id=str(niche.id))
+
+    # Create batch
+    batch = Batch(niche_id=str(niche.id), profile_ids=[profile.id])
+    db_session.add(batch)
+    db_session.commit()
+
+    # Update batch stats
+    batch.completed_profiles = 1
+    batch.successful_checks = 1
+    batch.failed_checks = 0
+    batch.status = 'done'
+    db_session.commit()
+
+    # Get batches
     response = client.get('/api/batches')
     assert response.status_code == 200
-    assert response.json == []
 
-def test_create_batch(client, create_niche, create_profile):
-    """Should create new batch with valid data"""
-    # Create niche and profiles
-    niche = create_niche('Fitness')
-    for i in range(5):
-        create_profile(f'user{i}', niche_id=niche.id)
-    
-    data = {
-        'niche_id': niche.id,
-        'profile_count': 3
-    }
-    
-    response = client.post('/api/batches', json=data)
-    assert response.status_code == 201
-    
-    batch = response.json
-    assert batch['niche_id'] == niche.id
-    assert batch['status'] == 'pending'
-    assert batch['total_profiles'] == 3
-    assert 'id' in batch
+    data = json.loads(response.data)
+    assert len(data) == 1
+    assert data[0]['id'] == batch.id
+    assert data[0]['niche_id'] == str(niche.id)
+    assert data[0]['status'] == 'done'
+    assert data[0]['total_profiles'] == 1
+    assert data[0]['completed_profiles'] == 1
+    assert data[0]['successful_checks'] == 1
+    assert data[0]['failed_checks'] == 0
+    assert data[0]['completion_rate'] == 100.0
 
-def test_create_batch_invalid_niche(client):
-    """Should reject batch creation for non-existent niche"""
-    data = {
-        'niche_id': 'nonexistent',
-        'profile_count': 10
-    }
-    
-    response = client.post('/api/batches', json=data)
-    assert response.status_code == 400
-    assert 'invalid niche' in response.json['message'].lower()
+def test_delete_batches(client, db_session, create_niche, create_profile):
+    """Test deleting batches"""
+    # Create test data
+    niche = create_niche("Test Niche")
+    profile = create_profile('test1', niche_id=str(niche.id))
 
-def test_create_batch_niche_in_progress(client, create_niche, create_profile):
-    """Should reject new batch when niche already has active batch"""
-    # Create niche and profiles
-    niche = create_niche('Fitness')
-    create_profile('user1', niche_id=niche.id)
-    
-    # Create first batch
-    data = {'niche_id': niche.id, 'profile_count': 1}
-    client.post('/api/batches', json=data)
-    
-    # Try to create second batch
-    response = client.post('/api/batches', json=data)
-    assert response.status_code == 400
-    assert 'batch already in progress' in response.json['message'].lower()
+    # Create batch
+    batch = Batch(niche_id=str(niche.id), profile_ids=[profile.id])
+    db_session.add(batch)
+    db_session.commit()
 
-def test_get_batch(client, create_niche, create_batch):
-    """Should return specific batch by ID"""
-    niche = create_niche('Fitness')
-    batch = create_batch(niche.id)
-    
-    response = client.get(f'/api/batches/{batch.id}')
-    assert response.status_code == 200
-    assert response.json['id'] == batch.id
-    assert response.json['niche_id'] == niche.id
+    # Verify batch and batch profiles exist
+    assert db_session.query(Batch).count() == 1
+    assert db_session.query(BatchProfile).count() == 1
 
-def test_get_batch_not_found(client):
-    """Should return 404 for non-existent batch"""
-    response = client.get('/api/batches/nonexistent')
+    # Delete batch
+    response = client.delete('/api/batches', json={
+        'batch_ids': [batch.id]
+    })
+    assert response.status_code == 204
+
+    # Verify batch and batch profiles are deleted
+    assert db_session.query(Batch).count() == 0
+    assert db_session.query(BatchProfile).count() == 0
+
+def test_delete_nonexistent_batch(client, db_session):
+    """Test deleting nonexistent batch"""
+    response = client.delete('/api/batches', json={
+        'batch_ids': ['nonexistent-id']
+    })
     assert response.status_code == 404
 
-def test_cancel_batch(client, create_niche, create_batch):
-    """Should cancel in-progress batch"""
-    niche = create_niche('Fitness')
-    batch = create_batch(niche.id)
-    batch.start()  # Set to running
-    
-    response = client.post(f'/api/batches/{batch.id}/cancel')
-    assert response.status_code == 200
-    assert response.json['status'] == 'cancelled'
-
-def test_cancel_completed_batch(client, create_niche, create_batch):
-    """Should reject cancellation of completed batch"""
-    niche = create_niche('Fitness')
-    batch = create_batch(niche.id)
-    batch.complete()  # Set to completed
-    
-    response = client.post(f'/api/batches/{batch.id}/cancel')
-    assert response.status_code == 400
-    assert 'cannot cancel' in response.json['message'].lower()
-
-def test_get_batch_results(client, create_niche, create_profile, create_batch, create_story):
-    """Should return story results for batch"""
+def test_get_batch_logs(client, db_session, create_niche, create_profile):
+    """Test retrieving batch logs"""
     # Create test data
-    niche = create_niche('Fitness')
-    profile = create_profile('user1', niche_id=niche.id)
-    batch = create_batch(niche.id)
-    story = create_story(profile.id, batch.id)
+    niche = create_niche("Test Niche")
+    profile = create_profile('test1', niche_id=str(niche.id))
     
-    response = client.get(f'/api/batches/{batch.id}/results')
+    # Create batch
+    batch = Batch(niche_id=str(niche.id), profile_ids=[profile.id])
+    db_session.add(batch)
+    db_session.commit()
+    
+    # Create some log entries
+    from services.batch_log_service import BatchLogService
+    BatchLogService.create_log(batch.id, 'BATCH_START', 'Batch started')
+    BatchLogService.create_log(batch.id, 'PROFILE_CHECK_START', 'Checking profile', profile_id=profile.id)
+    BatchLogService.create_log(batch.id, 'BATCH_END', 'Batch completed')
+    
+    # Retrieve logs
+    response = client.get(f'/api/batches/{batch.id}/logs')
     assert response.status_code == 200
-    assert len(response.json) == 1
-    assert response.json[0]['profile_id'] == profile.id
-
-def test_get_active_batches(client, create_niche, create_batch):
-    """Should return only active (pending/running) batches"""
-    niche = create_niche('Fitness')
     
-    # Create batches in different states
-    pending_batch = create_batch(niche.id)  # Status: pending
+    data = json.loads(response.data)
+    assert 'logs' in data
+    assert len(data['logs']) == 3
+    assert data['total'] == 3
     
-    running_batch = create_batch(niche.id)
-    running_batch.start()  # Status: running
+    # Check log entry structure
+    log_entry = data['logs'][0]
+    assert 'id' in log_entry
+    assert 'batch_id' in log_entry
+    assert 'timestamp' in log_entry
+    assert 'event_type' in log_entry
+    assert 'message' in log_entry
     
-    completed_batch = create_batch(niche.id)
-    completed_batch.complete()  # Status: completed
-    
-    response = client.get('/api/batches?status=active')
+    # Test pagination
+    response = client.get(f'/api/batches/{batch.id}/logs?limit=2&offset=1')
     assert response.status_code == 200
-    assert len(response.json) == 2  # Only pending and running
     
-    batch_statuses = [b['status'] for b in response.json]
-    assert 'pending' in batch_statuses
-    assert 'running' in batch_statuses
-    assert 'completed' not in batch_statuses
-
-def test_get_batch_progress(client, create_niche, create_profile, create_batch):
-    """Should return batch progress details"""
-    # Create test data
-    niche = create_niche('Fitness')
-    profiles = [create_profile(f'user{i}', niche_id=niche.id) for i in range(3)]
-    batch = create_batch(niche.id)
-    
-    # Add profiles to batch
-    for profile in profiles:
-        BatchProfile(batch_id=batch.id, profile_id=profile.id).save()
-    
-    # Mark some profiles as processed
-    batch_profiles = BatchProfile.query.filter_by(batch_id=batch.id).all()
-    batch_profiles[0].complete(has_story=True)
-    batch_profiles[1].complete(has_story=False)
-    # Leave one pending
-    
-    response = client.get(f'/api/batches/{batch.id}/progress')
-    assert response.status_code == 200
-    assert response.json['total_profiles'] == 3
-    assert response.json['completed_profiles'] == 2
-    assert response.json['successful_checks'] == 1
-    assert response.json['pending_profiles'] == 1
-
-def test_auto_trigger_batch(client, create_niche, create_profile):
-    """Should auto-trigger batch when below story target"""
-    # Create niche with target and profiles
-    niche = create_niche('Fitness', daily_story_target=5)
-    for i in range(10):
-        create_profile(f'user{i}', niche_id=niche.id)
-    
-    response = client.post('/api/batches/auto-trigger')
-    assert response.status_code == 200
-    assert len(response.json['triggered']) == 1
-    assert response.json['triggered'][0]['niche_id'] == niche.id
-
-def test_cleanup_old_batches(client, create_niche, create_batch):
-    """Should clean up old completed batches"""
-    niche = create_niche('Fitness')
-    
-    # Create old completed batch
-    old_batch = create_batch(niche.id)
-    old_batch.complete()
-    old_batch.end_time = datetime.now(UTC) - timedelta(days=8)
-    old_batch.save()
-    
-    # Create recent completed batch
-    recent_batch = create_batch(niche.id)
-    recent_batch.complete()
-    
-    response = client.post('/api/batches/cleanup')
-    assert response.status_code == 200
-    assert response.json['cleaned'] == 1
-    
-    # Verify old batch removed
-    assert Batch.get_by_id(old_batch.id) is None
-    # Verify recent batch remains
-    assert Batch.get_by_id(recent_batch.id) is not None
+    data = json.loads(response.data)
+    assert len(data['logs']) == 2
+    assert data['total'] == 3
+    assert data['limit'] == 2
+    assert data['offset'] == 1

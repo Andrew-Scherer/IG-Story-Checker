@@ -1,80 +1,183 @@
 """
-Test Session Model
-Tests database operations for Instagram session management
+Test session model functionality
 """
-
 import pytest
-from sqlalchemy.exc import IntegrityError
 from models.session import Session
 from models.proxy import Proxy
 
-@pytest.fixture
-def session_data():
-    """Test session data"""
-    return {
-        'session': 'test_session_123',
-        'status': 'active',
-        'proxy_id': None  # Will be set by test
-    }
+def test_session_creation(db_session):
+    """Test creating session with basic info"""
+    proxy = Proxy(
+        ip='192.168.1.1',
+        port=8080,
+        is_active=True
+    )
+    db_session.add(proxy)
 
-def test_session_creation(db_session, session_data):
-    """Test creating new session"""
-    session = Session(**session_data)
+    session = Session(
+        proxy=proxy,
+        session='test_session_cookie',
+        status=Session.STATUS_ACTIVE
+    )
     db_session.add(session)
     db_session.commit()
-    
+
     assert session.id is not None
-    assert session.session == session_data['session']
-    assert session.status == 'active'
+    assert session.session == 'test_session_cookie'
+    assert session.status == Session.STATUS_ACTIVE
+    assert session.proxy_id == proxy.id
     assert session.created_at is not None
     assert session.updated_at is not None
 
-def test_session_unique_session(db_session, session_data):
-    """Test session must be unique"""
+def test_session_unique_constraint(db_session):
+    """Test unique constraint on session cookie"""
+    proxy1 = Proxy(ip='192.168.1.1', port=8080)
+    proxy2 = Proxy(ip='192.168.1.2', port=8080)
+    db_session.add_all([proxy1, proxy2])
+    db_session.commit()
+
     # Create first session
-    session1 = Session(**session_data)
+    session1 = Session(
+        proxy=proxy1,
+        session='test_session',
+        status=Session.STATUS_ACTIVE
+    )
     db_session.add(session1)
     db_session.commit()
-    
-    # Try to create second session with same session data
-    session2 = Session(**session_data)
+
+    # Try to create duplicate session
+    session2 = Session(
+        proxy=proxy2,
+        session='test_session',
+        status=Session.STATUS_ACTIVE
+    )
     db_session.add(session2)
-    
-    with pytest.raises(IntegrityError):
+    with pytest.raises(Exception) as exc:
         db_session.commit()
+    assert 'sessions_session_key' in str(exc.value)
 
-def test_session_status_validation(db_session, session_data):
-    """Test session status validation"""
-    # Test valid statuses
-    valid_statuses = ['active', 'disabled']
-    for status in valid_statuses:
-        session_data['status'] = status
-        session = Session(**session_data)
-        db_session.add(session)
-        db_session.commit()
-        assert session.status == status
-    
-    # Test invalid status
-    session_data['status'] = 'invalid'
-    session = Session(**session_data)
-    db_session.add(session)
-    
-    with pytest.raises(IntegrityError):
-        db_session.commit()
-
-def test_session_proxy_relationship(db_session, session_data):
+def test_session_proxy_relationship(db_session):
     """Test session-proxy relationship"""
-    # Create proxy
-    proxy = Proxy(url='http://test.proxy:8080')
+    proxy = Proxy(
+        ip='192.168.1.1',
+        port=8080,
+        is_active=True
+    )
+    db_session.add(proxy)
+
+    session = Session(
+        proxy=proxy,
+        session='test_session',
+        status=Session.STATUS_ACTIVE
+    )
+    db_session.add(session)
+    db_session.commit()
+
+    # Test relationship from both sides
+    assert session.proxy == proxy
+    assert len(proxy.sessions.all()) == 1
+    assert proxy.sessions[0] == session
+
+def test_session_status_validation(db_session):
+    """Test session status validation"""
+    proxy = Proxy(ip='192.168.1.1', port=8080)
     db_session.add(proxy)
     db_session.commit()
-    
-    # Create session with proxy
-    session_data['proxy_id'] = proxy.id
-    session = Session(**session_data)
+
+    # Valid status
+    session = Session(
+        proxy=proxy,
+        session='test_session',
+        status=Session.STATUS_ACTIVE
+    )
     db_session.add(session)
     db_session.commit()
-    
-    assert session.proxy_id == proxy.id
-    assert session.proxy == proxy
-    assert session in proxy.sessions
+
+    # Invalid status
+    session.status = 'invalid'
+    with pytest.raises(Exception) as exc:
+        db_session.commit()
+    assert 'session_status' in str(exc.value)
+
+def test_session_serialization(db_session):
+    """Test session serialization to dict"""
+    proxy = Proxy(ip='192.168.1.1', port=8080)
+    db_session.add(proxy)
+    db_session.commit()
+
+    session = Session(
+        proxy=proxy,
+        session='test_session',
+        status=Session.STATUS_ACTIVE
+    )
+    db_session.add(session)
+    db_session.commit()
+
+    data = session.to_dict()
+    assert data['id'] == session.id
+    assert data['session'] == session.session
+    assert data['status'] == session.status
+    assert data['proxy_id'] == session.proxy_id
+    assert data['created_at'] == session.created_at.isoformat()
+    assert data['updated_at'] == session.updated_at.isoformat()
+
+def test_session_status_transitions(db_session):
+    """Test session status transitions"""
+    proxy = Proxy(ip='192.168.1.1', port=8080)
+    db_session.add(proxy)
+
+    session = Session(
+        proxy=proxy,
+        session='test_session',
+        status=Session.STATUS_ACTIVE
+    )
+    db_session.add(session)
+    db_session.commit()
+
+    # Test valid transition
+    session.status = Session.STATUS_DISABLED
+    db_session.commit()
+    assert session.status == Session.STATUS_DISABLED
+
+def test_session_proxy_unique_constraint(db_session):
+    """Test one session per proxy constraint"""
+    proxy = Proxy(ip='192.168.1.1', port=8080)
+    db_session.add(proxy)
+    db_session.commit()
+
+    # Create first session
+    session1 = Session(
+        proxy=proxy,
+        session='test_session1',
+        status=Session.STATUS_ACTIVE
+    )
+    db_session.add(session1)
+    db_session.commit()
+
+    # Try to create second session for same proxy
+    session2 = Session(
+        proxy=proxy,
+        session='test_session2',
+        status=Session.STATUS_ACTIVE
+    )
+    db_session.add(session2)
+    with pytest.raises(Exception) as exc:
+        db_session.commit()
+    assert 'proxy_id' in str(exc.value)
+
+def test_session_string_representation(db_session):
+    """Test string representation of session"""
+    proxy = Proxy(ip='192.168.1.1', port=8080)
+    db_session.add(proxy)
+
+    session = Session(
+        proxy=proxy,
+        session='test_session',
+        status=Session.STATUS_ACTIVE
+    )
+    assert repr(session) == '<Session None (active)>'
+
+    db_session.add(session)
+    db_session.commit()
+
+    assert repr(session) == f'<Session {session.id} (active)>'

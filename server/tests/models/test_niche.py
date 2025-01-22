@@ -1,8 +1,12 @@
 import os
 import sys
 import pytest
+import logging
 from datetime import datetime
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy import event
+from contextlib import contextmanager
+from threading import Timer
 
 # Add the server directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -10,15 +14,59 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from models.niche import Niche
 from models.profile import Profile
 
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+@contextmanager
+def db_session_commit_timeout(session, timeout_seconds=5):
+    """Context manager to add a timeout to database commit operations."""
+    def timeout_handler():
+        raise TimeoutError("Database commit operation timed out")
+
+    timer = Timer(timeout_seconds, timeout_handler)
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
+
+def add_sqlalchemy_event_listeners(session):
+    """Add SQLAlchemy event listeners for detailed logging."""
+    @event.listens_for(session, "before_commit")
+    def before_commit(session):
+        logger.debug("Before commit")
+
+    @event.listens_for(session, "after_commit")
+    def after_commit(session):
+        logger.debug("After commit")
+
+    @event.listens_for(session, "after_rollback")
+    def after_rollback(session):
+        logger.debug("After rollback")
+
 def test_create_niche(db_session):
     """Test basic niche creation with required fields"""
+    add_sqlalchemy_event_listeners(db_session)
+    
     niche = Niche(name="Fitness_Create")
     db_session.add(niche)
-    db_session.commit()
+    
+    try:
+        with db_session_commit_timeout(db_session):
+            db_session.commit()
+    except TimeoutError:
+        logger.error("Commit operation timed out")
+        db_session.rollback()
+        pytest.fail("Database commit timed out")
+    except SQLAlchemyError as e:
+        logger.error(f"An error occurred during commit: {str(e)}")
+        db_session.rollback()
+        pytest.fail(f"Database error: {str(e)}")
 
     assert niche.id is not None
     assert niche.name == "Fitness_Create"
-    assert niche.display_order == 0  # Default order
+    assert niche.order == 0  # Default order
     assert isinstance(niche.created_at, datetime)
     assert isinstance(niche.updated_at, datetime)
 
@@ -69,23 +117,23 @@ def test_niche_profile_relationship(db_session):
 def test_niche_display_order(db_session):
     """Test niche display order management"""
     # Create niches with specific orders
-    niche1 = Niche(name="Fitness_Order", display_order=1)
-    niche2 = Niche(name="Fashion", display_order=2)
-    niche3 = Niche(name="Food", display_order=3)
+    niche1 = Niche(name="Fitness_Order", order=1)
+    niche2 = Niche(name="Fashion", order=2)
+    niche3 = Niche(name="Food", order=3)
     db_session.add_all([niche1, niche2, niche3])
     db_session.commit()
 
     # Test ordering
-    niches = db_session.query(Niche).order_by(Niche.display_order).all()
+    niches = db_session.query(Niche).order_by(Niche.order).all()
     assert [n.name for n in niches] == ["Fitness_Order", "Fashion", "Food"]
 
     # Test reordering
-    niche1.display_order = 3
-    niche2.display_order = 1
-    niche3.display_order = 2
+    niche1.order = 3
+    niche2.order = 1
+    niche3.order = 2
     db_session.commit()
 
-    niches = db_session.query(Niche).order_by(Niche.display_order).all()
+    niches = db_session.query(Niche).order_by(Niche.order).all()
     assert [n.name for n in niches] == ["Fashion", "Food", "Fitness_Order"]
 
 def test_niche_deletion_profile_handling(db_session):
@@ -111,7 +159,7 @@ def test_niche_deletion_profile_handling(db_session):
 
 def test_niche_to_dict(db_session):
     """Test niche serialization to dictionary"""
-    niche = Niche(name="Fitness_Dict", display_order=1)
+    niche = Niche(name="Fitness_Dict", order=1)
     db_session.add(niche)
     db_session.commit()
 
@@ -119,7 +167,7 @@ def test_niche_to_dict(db_session):
     
     assert isinstance(niche_dict, dict)
     assert niche_dict['name'] == "Fitness_Dict"
-    assert niche_dict['display_order'] == 1
+    assert niche_dict['order'] == 1
     assert 'id' in niche_dict
     assert 'created_at' in niche_dict
     assert 'updated_at' in niche_dict

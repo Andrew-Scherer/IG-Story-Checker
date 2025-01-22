@@ -1,0 +1,5 @@
+https://instagram.com/test_user1
+https://www.instagram.com/test_user2
+instagram.com/test_user3
+https://instagram.com/test_user4/
+https://instagram.com/test_user5?hl=en

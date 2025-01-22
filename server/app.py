@@ -1,58 +1,121 @@
-"""
-Main Flask Application
-Configures and initializes the Flask app with all required extensions
-"""
+# Flask application factory
 
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
+import os
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+from flask import Flask, jsonify
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager
 
-# Initialize extensions
-db = SQLAlchemy()
-migrate = Migrate()
-jwt = JWTManager()
+# Add the server directory to Python path
+server_dir = Path(__file__).resolve().parent
+if str(server_dir) not in sys.path:
+    sys.path.insert(0, str(server_dir))
 
-def create_app(config=None):
-    """Create and configure Flask application"""
+from extensions import db
+from config.logging_config import setup_component_logging
+
+# Ensure we're in the correct directory
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+# Load environment variables from .env file
+env_path = Path('.') / '.env'
+if not env_path.exists():
+    print("Error: .env file not found in", os.path.abspath('.'))
+    sys.exit(1)
+
+load_dotenv(env_path, verbose=True)
+
+# Verify database environment variables
+required_vars = ['POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB']
+env_values = {var: os.getenv(var) for var in required_vars}
+print("Database environment variables:")
+for var, value in env_values.items():
+    print(f"{var}: {value}")
+
+missing_vars = [var for var in required_vars if not env_values[var]]
+if missing_vars:
+    print("Error: Missing required environment variables:", missing_vars)
+    sys.exit(1)
+
+# Also check SQLAlchemy URI
+print("SQLALCHEMY_DATABASE_URI:", os.getenv('SQLALCHEMY_DATABASE_URI'))
+
+def create_app(config_object=None):
+    """Create Flask application"""
+    # Set up application logging
+    logger = setup_component_logging('app')
+    logger.info("=== Starting Flask Application Creation ===")
+
     app = Flask(__name__)
-    
-    # Load configuration
-    from config import get_config
-    app.config.from_object(get_config())
-    
-    # Override with custom config if provided
-    if config:
-        app.config.update(config)
-    
-    # Initialize extensions
-    CORS(app)
+    app.logger = logger
+    logger.info("[OK] Flask app instance created")
+
+    # Register error handlers
+    @app.errorhandler(Exception)
+    def handle_error(error):
+        logger.error(f'Unhandled error: {str(error)}', exc_info=True)
+        if hasattr(error, 'to_dict'):
+            response = error.to_dict()
+        else:
+            response = {'error': str(error)}
+            if app.debug:
+                import traceback
+                response['traceback'] = traceback.format_exc()
+        return jsonify(response), getattr(error, 'code', 500)
+
+    # Load config
+    logger.info("=== Loading Configuration ===")
+    if config_object is None:
+        # Import here to avoid circular imports
+        import importlib.util
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
+        spec = importlib.util.spec_from_file_location('config', config_path)
+        config_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config_module)
+        config_object = config_module.DevelopmentConfig()
+        logger.info("[OK] Using development configuration")
+    if isinstance(config_object, dict):
+        app.config.update(config_object)
+        logger.info("[OK] Updated config from dictionary")
+    else:
+        app.config.from_object(config_object)
+        logger.info("[OK] Loaded config from object")
+
+    # Print final configuration for debugging
+    print("\nFinal configuration:")
+    print(f"SQLALCHEMY_DATABASE_URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
+    print(f"DEBUG: {app.config.get('DEBUG')}")
+    print(f"TESTING: {app.config.get('TESTING')}")
+    print(f"FLASK_ENV: {os.getenv('FLASK_ENV')}\n")
+
+    # Initialize extensions with proper CORS configuration
+    logger.info("=== Initializing Extensions ===")
+    cors = CORS(app, resources={
+        r"/api/*": {
+            "origins": ["http://localhost:3000"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type"]
+        }
+    })
+    logger.info("[OK] CORS initialized")
     db.init_app(app)
-    migrate.init_app(app, db)
-    jwt.init_app(app)
-    
-    # TODO: Register blueprints
-    # 1. API routes
-    # 2. Auth routes
-    # 3. Admin routes
-    
-    # TODO: Initialize background tasks
-    # 1. Batch processor
-    # 2. Auto-trigger scheduler
-    # 3. Result cleanup
-    
-    # Error handlers
-    @app.errorhandler(404)
-    def not_found(error):
-        return {'error': 'Not Found'}, 404
-    
-    @app.errorhandler(500)
-    def server_error(error):
-        return {'error': 'Internal Server Error'}, 500
-    
+    logger.info("[OK] Database initialized")
+
+    # Register API blueprints
+    logger.info("=== Registering Blueprints ===")
+    from api import api_bp
+    app.register_blueprint(api_bp)
+    logger.info("[OK] API blueprints registered")
+
     return app
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True)
+
+    with app.app_context():
+        # Create all tables if they don't exist
+        db.create_all()
+
+    # Run the application
+    app.run(port=5000, debug=True)  # Enable debug mode to show error tracebacks

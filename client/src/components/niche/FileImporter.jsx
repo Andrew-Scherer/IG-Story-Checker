@@ -2,27 +2,27 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import './FileImporter.scss';
 
-const FileImporter = ({ onImport, allowedTypes, maxSize }) => {
+const FileImporter = ({ 
+  onImport, 
+  disabled = false, 
+  disabledMessage = 'Please select a niche before importing profiles' 
+}) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const validateFile = (file) => {
-    const extension = '.' + file.name.split('.').pop().toLowerCase();
+  const handleInputChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file || disabled) return;
     
-    if (!allowedTypes.includes(extension)) {
-      throw new Error('Invalid file type. Allowed types: ' + allowedTypes.join(', '));
-    }
-    
-    if (file.size > maxSize) {
-      throw new Error('File too large. Maximum size: ' + (maxSize / (1024 * 1024)) + 'MB');
-    }
-  };
-
-  const handleFile = async (file) => {
     try {
       setError('');
       setIsLoading(true);
-      validateFile(file);
+
+      if (!file.type.startsWith('text/') && 
+          !file.name.match(/\.(txt|csv|list)$/i)) {
+        throw new Error('Please upload a text file containing Instagram profile URLs');
+      }
+
       await onImport(file);
     } catch (err) {
       setError(err.message);
@@ -31,25 +31,23 @@ const FileImporter = ({ onImport, allowedTypes, maxSize }) => {
     }
   };
 
-  const handleInputChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      handleFile(file);
-    }
-  };
-
   return (
-    <div className="file-importer">
+    <div className={`file-importer ${disabled ? 'file-importer--disabled' : ''}`}
+         data-testid="file-importer">
       <div className="file-importer__input-group">
-        <input
-          type="file"
-          accept={allowedTypes.join(',')}
-          onChange={handleInputChange}
-          className="file-importer__input"
-          disabled={isLoading}
-        />
-        {isLoading && <span>Importing...</span>}
-        {error && <span className="file-importer__error">{error}</span>}
+        <label className="file-importer__label">
+          {isLoading ? 'Importing...' : 'Import Profiles'}
+          <input
+            type="file"
+            onChange={handleInputChange}
+            className="file-importer__input"
+            disabled={isLoading || disabled}
+            accept=".txt,.csv,.list"
+            data-testid="file-input"
+          />
+        </label>
+        {error && <div className="file-importer__error">{error}</div>}
+        {disabled && <div className="file-importer__message">{disabledMessage}</div>}
       </div>
     </div>
   );
@@ -57,8 +55,8 @@ const FileImporter = ({ onImport, allowedTypes, maxSize }) => {
 
 FileImporter.propTypes = {
   onImport: PropTypes.func.isRequired,
-  allowedTypes: PropTypes.arrayOf(PropTypes.string).isRequired,
-  maxSize: PropTypes.number.isRequired
+  disabled: PropTypes.bool,
+  disabledMessage: PropTypes.string
 };
 
 export default FileImporter;

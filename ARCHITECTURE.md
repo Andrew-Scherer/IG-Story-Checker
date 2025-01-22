@@ -13,14 +13,14 @@
 ┌───────────────────────▼─────────────────┐
 │              Server Layer               │
 │  ┌─────────────┐  ┌──────────────────┐ │
-│  │  Flask API  │  │  Batch Processor │ │
+│  │  Flask API  │  │  Worker Manager  │ │
 │  └─────────────┘  └──────────────────┘ │
 └───────────────────────┬─────────────────┘
                         │
 ┌───────────────────────▼─────────────────┐
 │              Data Layer                 │
 │  ┌─────────────┐  ┌──────────────────┐ │
-│  │ PostgreSQL  │  │   Redis Cache    │ │
+│  │ PostgreSQL  │  │   Story Results  │ │
 │  └─────────────┘  └──────────────────┘ │
 └─────────────────────────────────────────┘
 ```
@@ -32,43 +32,33 @@ instagram-story-checker/
 ├── client/                      # Frontend React application
 │   ├── src/
 │   │   ├── components/         # Reusable UI components
-│   │   │   ├── common/        # Shared components
-│   │   │   ├── niche/         # Niche-related components
-│   │   │   ├── batch/         # Batch-related components
-│   │   │   └── settings/      # Settings components
+│   │   │   ├── common/        # Shared components (Table, Button, etc.)
+│   │   │   ├── niche/         # Niche feed and profile management
+│   │   │   ├── batch/         # Batch table and controls
+│   │   │   └── settings/      # Proxy and system settings
 │   │   ├── stores/            # Zustand state management
-│   │   ├── api/               # API integration
-│   │   └── utils/             # Helper functions
-│   └── tests/                 # Frontend test suites
-│       ├── components/        # Component tests
-│       ├── stores/           # Store tests
-│       └── api/              # API integration tests
+│   │   ├── api/               # API client
+│   │   └── styles/            # Global styles and variables
+│   └── tests/                 # Frontend tests
 │
-├── server/                      # Backend Flask application
-│   ├── api/                    # API endpoints
-│   │   ├── niche.py           # Niche management
-│   │   ├── profile.py         # Profile management
-│   │   ├── batch.py           # Batch operations
-│   │   └── settings.py        # Settings & session management
-│   ├── core/                   # Core functionality
-│   │   ├── batch_processor.py # Batch processing logic
-│   │   ├── story_checker.py   # Instagram story checking
-│   │   ├── session_manager.py # Instagram session management
-│   │   └── scheduler.py       # Task scheduling
-│   ├── models/                 # Database models
-│   │   ├── base.py           # Base model configuration
-│   │   ├── profile.py        # Profile schema
-│   │   ├── niche.py          # Niche schema
-│   │   ├── batch.py          # Batch schema
-│   │   ├── story.py          # Story schema
-│   │   ├── session.py        # Session schema
-│   │   └── settings.py       # Settings schema
-│   ├── migrations/            # Database migrations
-│   └── tests/                 # Backend test suites
-│       ├── api/              # API endpoint tests
-│       ├── core/             # Core logic tests
-│       ├── models/           # Model tests
-│       └── integration/      # Integration tests
+├── server/                     # Backend Flask application
+│   ├── api/                   # API endpoints
+│   │   ├── niche.py          # Niche management
+│   │   ├── profile.py        # Profile management
+│   │   ├── batch.py          # Batch operations
+│   │   └── proxy.py          # Proxy management
+│   ├── core/                  # Core functionality
+│   │   ├── worker_manager.py # Worker pool management
+│   │   ├── story_checker.py  # Story checking logic
+│   │   └── batch_processor.py # Batch processing
+│   ├── models/               # Database models
+│   │   ├── base.py          # Base model
+│   │   ├── profile.py       # Profile schema
+│   │   ├── niche.py         # Niche schema
+│   │   ├── batch.py         # Batch schema
+│   │   ├── proxy.py         # Proxy schema
+│   │   └── session.py       # Session schema
+│   └── tests/               # Backend tests
 ```
 
 ## Component Responsibilities
@@ -76,257 +66,219 @@ instagram-story-checker/
 ### Frontend Components
 
 #### 1. Common Components (`client/src/components/common/`)
-- `Button.jsx`: Reusable button component with consistent styling
-- `Input.jsx`: Form input component with validation support
-- `Table.jsx`: Data table with sorting and filtering
-- `Modal.jsx`: Popup dialog component for forms and confirmations
+- `Table.jsx`: Multi-select data table with sorting
+- `Button.jsx`: Action buttons with loading states
+- `Input.jsx`: Form inputs with validation
+- `Modal.jsx`: Confirmation dialogs
+- `Spinner.jsx`: Loading indicators
 
-#### 2. Niche Management (`client/src/components/niche/`)
-- `NicheList.jsx`: Manages niche categories and organization
-- `ProfileList.jsx`: Displays and manages profiles within niches
-- `FileImporter.jsx`: Handles bulk username imports from files
-- `FilterControls.jsx`: Profile filtering and sorting controls
+#### 2. Niche Feed (`client/src/components/niche/`)
+- `NicheFeed.jsx`: Main niche management view
+- `ProfileList.jsx`: Profile selection and management
+- `FileImporter.jsx`: Profile import from files
 
-#### 3. Batch Operations (`client/src/components/batch/`)
-- `BatchControl.jsx`: Controls batch execution and scheduling
-- `ResultsDisplay.jsx`: Displays batch results with filtering and actions
-- `BatchProgress.jsx`: Real-time progress tracking
+#### 3. Batch Management (`client/src/components/batch/`)
+- `BatchTable.jsx`: Batch listing and controls
+  - Multi-select functionality
+  - Progress tracking
+  - Status display
+  - Action buttons (start/stop/delete)
 
-#### 4. Settings Management (`client/src/components/settings/`)
-- `MasterList.jsx`: Central profile database management
-- `StoryTargets.jsx`: Story checking frequency configuration
-- `ProxyManager.jsx`: Proxy and session configuration with monitoring
+#### 4. Settings (`client/src/components/settings/`)
+- `ProxyManager.jsx`: Proxy configuration
+- `Settings.jsx`: System settings
 
 ### Backend Components
 
 #### 1. API Layer (`server/api/`)
-- `niche.py`: CRUD operations for niche management
-- `profile.py`: Profile creation, updates, and queries
-- `batch.py`: Batch creation and control endpoints
-- `settings.py`: System configuration and session management
+- `niche.py`: Niche CRUD operations
+- `profile.py`: Profile management
+- `batch.py`: Batch operations
+  - Creation from selected profiles
+  - Status management
+  - Progress tracking
+  - Deletion with cleanup
+- `proxy.py`: Proxy configuration
 
 #### 2. Core Processing (`server/core/`)
-- `batch_processor.py`: Manages batch execution and threading
-- `story_checker.py`: Instagram story detection using API
-- `proxy_manager.py`: Proxy and session management
-- `scheduler.py`: Automated task scheduling and execution
+- `worker_manager.py`: Worker pool management
+  - Proxy assignment
+  - Session handling
+  - Rate limiting
+- `story_checker.py`: Story detection
+- `batch_processor.py`: Batch execution
 
 #### 3. Data Models (`server/models/`)
-- `base.py`: SQLAlchemy base configuration and mixins
-- `profile.py`: Instagram profile data and status
-- `niche.py`: Niche categories and relationships
-- `batch.py`: Batch execution tracking
-- `story.py`: Story detection results and history
-- `proxy.py`: Proxy configuration and session data
-- `settings.py`: Application configuration storage
+- `batch.py`: Batch and batch profile tracking
+- `profile.py`: Profile data and stats
+- `niche.py`: Niche organization
+- `proxy.py`: Proxy configuration
+- `session.py`: Session management
 
 ## State Management
 
-### Zustand Stores (`client/src/stores/`)
+### Zustand Stores
 
-1. **Proxy Store** (`proxyStore.js`)
+1. **Batch Store** (`batchStore.js`)
 ```javascript
 {
-  proxies: {
-    active: [],      // Working proxy-session pairs
-    cooldown: [],    // Rate-limited pairs
-    disabled: []     // Invalid/expired pairs
-  },
-  stats: {
-    checksPerProxy: {},
-    successRates: {},
-    rateLimits: {}
-  },
+  batches: [],           // Current batches
+  loading: false,        // Loading state
+  error: null,          // Error state
   actions: {
-    addProxy,
-    removeProxy,
-    updateProxyStatus,
-    updateSessionCookie,
-    recordStats
+    fetchBatches,      // Get all batches
+    createBatch,       // Create from selected profiles
+    startBatches,      // Start selected batches
+    stopBatches,       // Stop selected batches
+    deleteBatches      // Delete selected batches
   }
 }
 ```
 
-2. **Niche Store** (`nicheStore.js`)
+2. **Profile Store** (`profileStore.js`)
+```javascript
+{
+  profiles: [],
+  selectedProfiles: [],
+  loading: false,
+  error: null,
+  actions: {
+    fetchProfiles,
+    importProfiles,
+    selectProfile,
+    selectRange
+  }
+}
+```
+
+3. **Niche Store** (`nicheStore.js`)
 ```javascript
 {
   niches: [],
   selectedNiche: null,
+  loading: false,
+  error: null,
   actions: {
-    addNiche,
-    updateNiche,
-    deleteNiche,
-    reorderNiches
+    fetchNiches,
+    createNiche,
+    deleteNiche
   }
 }
 ```
 
-3. **Profile Store** (`profileStore.js`)
+4. **Proxy Store** (`proxyStore.js`)
 ```javascript
 {
-  profiles: [],
-  filters: { status, sortBy },
+  proxies: [],                    // List of available proxies
+  loading: false,                 // Loading state
+  error: null,                    // Error state
+  healthHistory: {},             // Historical health data per proxy
+  rotationEnabled: false,        // Auto rotation status
+  rotationInterval: 60,          // Minutes between rotations
   actions: {
-    importProfiles,
-    updateProfile,
-    deleteProfiles,
-    assignToNiche
+    fetchProxies,               // Get all proxies
+    addProxy,                   // Add new proxy with session
+    removeProxy,                // Remove proxy and cleanup
+    testProxy,                  // Test proxy connectivity
+    updateHealth,               // Update proxy health metrics
+    toggleRotation,             // Enable/disable auto rotation
+    setRotationInterval,        // Update rotation timing
+    getHealthyProxies,         // Get proxies meeting health criteria
+    getDegradedProxies,        // Get proxies needing attention
+    getAvailableProxies        // Get proxies ready for assignment
   }
 }
 ```
 
-4. **Batch Store** (`batchStore.js`)
-```javascript
-{
-  activeBatches: [],
-  results: [],
-  actions: {
-    createBatch,
-    cancelBatch,
-    updateBatchStatus,
-    clearResults
-  }
-}
+## Data Flows
+
+### 1. Profile Selection Flow
+```
+ProfileList → Profile Store → BatchTable → Batch Store → API
 ```
 
-5. **Settings Store** (`settingsStore.js`)
-```javascript
-{
-  settings: {
-    storyTargets: {},
-    proxyConfig: {},
-    rateLimit: {},
-    sessionConfig: {
-      maxChecksPerHour: 200,
-      cooldownMinutes: 15,
-      minSuccessRate: 0.8
-    }
-  },
-  actions: {
-    updateSettings,
-    updateProxyConfig,
-    updateRateLimit,
-    updateSessionConfig
-  }
-}
+### 2. Batch Processing Flow
+```
+BatchTable → Batch Store → API → Worker Manager → 
+Story Checker → Database → API → Batch Store → UI
+```
+
+### 3. Proxy Management Flow
+```
+ProxyManager → Proxy Store → API → Worker Manager → Database → API → Proxy Store → UI
+
+Proxy Health Flow:
+1. Worker makes request through proxy
+2. Worker reports metrics to Worker Manager
+3. Worker Manager updates proxy health
+4. Health metrics propagate to UI
+5. Auto-rotation triggers if needed
+
+Session Management Flow:
+1. Proxy created with Instagram session
+2. Session assigned to worker
+3. Worker validates session
+4. Session status updated
+5. Failed sessions trigger proxy rotation
 ```
 
 ## Testing Strategy
 
-### 1. Frontend Testing
-- **Component Tests** (`client/tests/components/`)
-  - Common component behavior
-  - User interaction flows
-  - State updates
-- **Store Tests** (`client/tests/stores/`)
-  - State management
-  - Action handlers
-  - Store interactions
-- **API Tests** (`client/tests/api/`)
-  - API integration
-  - Error handling
-  - Response parsing
+### Frontend Testing
+- Component rendering and interaction
+- Store state management
+- API integration
+- Error handling
 
-### 2. Backend Testing
-- **API Tests** (`server/tests/api/`)
-  - Endpoint functionality
-  - Request validation
-  - Response formatting
-- **Core Tests** (`server/tests/core/`)
-  - Batch processing logic
-  - Story checking accuracy
-  - Session management
-  - Scheduler reliability
-- **Model Tests** (`server/tests/models/`)
-  - Schema validation
-  - Relationship integrity
-  - Query performance
-- **Integration Tests** (`server/tests/integration/`)
-  - End-to-end workflows
-  - System interactions
-  - Performance metrics
+### Backend Testing
+- API endpoints
+- Worker management
+- Batch processing
+- Database operations
 
-## Data Flow
+## Security
 
-1. **Profile Import Flow**
-```
-FileImporter → API → Master List → Profile Store → UI Update
-```
-
-2. **Batch Processing Flow**
-```
-BatchControl → API → Batch Processor → Session Manager → Story Checker → 
-Results Update → Profile Store → UI Update
-```
-
-3. **Settings Update Flow**
-```
-Settings Component → API → Config Update → 
-System Reconfiguration → Status Update
-```
-
-4. **Proxy-Session Management Flow**
-```
-ProxyManager → API → Proxy-Session Validation → 
-Health Monitoring → Status Update
-```
-
-## Key Integration Points
-
-### 1. Frontend-Backend Integration
-- RESTful API endpoints
-- WebSocket for real-time updates
-- JWT authentication
-
-### 2. Database Integration
-- SQLAlchemy ORM
-- Migration management
-- Connection pooling
-
-### 3. External Service Integration
-- Instagram API interaction
-- Proxy-session management
-- Error handling/retry logic
-
-## Security Measures
-
-1. **Authentication**
-- JWT token validation
-- Role-based access
-- Session management
-
-2. **Data Protection**
-- HTTPS encryption
+1. **API Security**
 - Input validation
-- SQL injection prevention
-- Secure session storage
+- Error handling
+- Rate limiting
 
-3. **Rate Limiting**
-- API request throttling
-- Proxy-session pair rotation
-- Instagram rate compliance
+2. **Resource Management**
+- Proxy Management
+  - Automatic proxy rotation based on health metrics
+  - Session validation and cleanup
+  - Error threshold monitoring
+  - Request rate limiting
+  - Performance tracking
+  - Health history maintenance
+  - Load balancing across proxy pool
+- Session Management
+  - Session cookie validation
+  - Session-proxy pairing
+  - Failed session detection
+  - Automatic session rotation
+  - Session cleanup on proxy removal
+- Error Recovery
+  - Automatic retry with backoff
+  - Circuit breaking for failed proxies
+  - Session regeneration
+  - Worker reassignment
 
-## Deployment Architecture
+## Deployment
 
 ```
-┌─────────────────┐    ┌─────────────────┐
-│   Load Balancer │────│  React Frontend │
-└────────┬────────┘    └─────────────────┘
-         │
-┌────────▼────────┐    ┌─────────────────┐
-│   Flask API     │────│  Redis Cache    │
-└────────┬────────┘    └─────────────────┘
-         │
-┌────────▼────────┐    ┌─────────────────┐
-│   PostgreSQL    │────│  Backup DB      │
-└─────────────────┘    └─────────────────┘
+┌─────────────┐    ┌─────────────┐
+│ React Build │────│ Flask API   │
+└─────────────┘    └──────┬──────┘
+                          │
+                   ┌──────▼──────┐
+                   │ PostgreSQL  │
+                   └─────────────┘
 ```
 
-This architecture ensures:
-1. Scalable component structure
-2. Clear separation of concerns
-3. Maintainable codebase
-4. Efficient data flow
-5. Robust error handling
-6. Comprehensive testing coverage
-7. Secure session management
+This architecture provides:
+1. Clear component separation
+2. Efficient state management
+3. Robust error handling
+4. Scalable processing
+5. Comprehensive testing
