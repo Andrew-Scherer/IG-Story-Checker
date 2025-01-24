@@ -43,8 +43,14 @@ const ProxyManager = () => {
   const [proxyToRemove, setProxyToRemove] = useState(null);
   const [testResults, setTestResults] = useState({});
   const [showHealthHistory, setShowHealthHistory] = useState(null);
-  const [showRotationSettings, setShowRotationSettings] = useState(false);
-  const [showAddDialog, setShowAddDialog] = useState(false);
+
+      const [showRotationSettings, setShowRotationSettings] = useState(false);
+      const [showAddDialog, setShowAddDialog] = useState(false);
+
+      // New state variables for Error Log
+      const [showErrorLog, setShowErrorLog] = useState(false);
+      const [errorLogs, setErrorLogs] = useState([]);
+      const [selectedProxy, setSelectedProxy] = useState(null);
 
   const validateProxies = useCallback((proxyLines) => {
     const errors = {};
@@ -168,6 +174,27 @@ const ProxyManager = () => {
     setRotationInterval(parseInt(minutes, 10));
   };
 
+  // Function to fetch error logs for a proxy
+  const fetchErrorLogs = async (proxyId) => {
+    try {
+      const response = await fetch(`/api/proxies/${proxyId}/error_logs`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch error logs');
+      }
+      const data = await response.json();
+      setErrorLogs(data);
+    } catch (err) {
+      console.error('Failed to fetch error logs:', err);
+      setErrorLogs([]);
+    }
+  };
+
+  const handleShowErrorLog = async (proxy) => {
+    setSelectedProxy(proxy);
+    await fetchErrorLogs(proxy.id);
+    setShowErrorLog(true);
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return '-';
     return new Date(dateString).toLocaleString();
@@ -249,6 +276,10 @@ const ProxyManager = () => {
                     <th>Proxy</th>
                     <th>Session</th>
                     <th>Status</th>
+                    <th>Avg Response</th>
+                      <th>Connection Rate</th>
+                    <th>Last Success</th>
+                    <th>Last Error</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -283,17 +314,34 @@ const ProxyManager = () => {
                           {proxy.status}
                         </Button>
                       </td>
+                      <td>{proxy.avg_response_time ? `${proxy.avg_response_time}ms` : '-'}</td>
                       <td>
-                        <div className="proxy-manager__actions">
-                          <Button
-                            variant="danger"
-                            size="small"
-                            onClick={() => handleConfirmRemove(proxy)}
-                          >
-                            Remove
-                          </Button>
-                        </div>
+                        {proxy.total_requests > 0
+                          ? `${Math.round(((proxy.total_requests - proxy.failed_requests) / proxy.total_requests) * 100)}%`
+                          : '-'}
                       </td>
+                      <td>{formatDate(proxy.last_success)}</td>
+                      <td className="proxy-manager__error-cell">
+                        {proxy.last_error || '-'}
+                      </td>
+                          <td>
+                            <div className="proxy-manager__actions">
+                              <Button
+                                variant="primary"
+                                size="small"
+                                onClick={() => handleShowErrorLog(proxy)}
+                              >
+                                Error Log
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="small"
+                                onClick={() => handleConfirmRemove(proxy)}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </td>
                     </tr>
                   ))}
                 </tbody>

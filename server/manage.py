@@ -7,36 +7,39 @@ Handles database initialization, migrations, and maintenance
 import click
 from flask.cli import FlaskGroup
 from app import create_app
-from models import db, init_db, drop_db, reset_db, seed_db
-from models import SystemSettings, Niche
+from flask_migrate import Migrate
+from models import db, SystemSettings, Niche
 
 def create_cli_app():
     """Create Flask app for CLI commands"""
-    return create_app()
+    app = create_app()
+    migrate = Migrate(app, db)
+    return app
 
 cli = FlaskGroup(create_app=create_cli_app)
 
-@cli.command('init')
-def init():
+@cli.command('init-db')
+def init_db():
     """Initialize database"""
     click.echo('Initializing database...')
-    init_db()
+    db.create_all()
     click.echo('Database initialized.')
 
-@cli.command('drop')
-def drop():
+@cli.command('drop-db')
+def drop_db():
     """Drop all tables"""
     if click.confirm('Are you sure you want to drop all tables?'):
         click.echo('Dropping database...')
-        drop_db()
+        db.drop_all()
         click.echo('Database dropped.')
 
-@cli.command('reset')
-def reset():
+@cli.command('reset-db')
+def reset_db():
     """Reset database (drop and recreate)"""
     if click.confirm('Are you sure you want to reset the database?'):
         click.echo('Resetting database...')
-        reset_db()
+        db.drop_all()
+        db.create_all()
         click.echo('Database reset.')
 
 @cli.command('seed')
@@ -49,7 +52,8 @@ def seed(sample_data):
     if not SystemSettings.query.get(1):
         click.echo('Creating default system settings...')
         settings = SystemSettings()
-        settings.save()
+        db.session.add(settings)
+        db.session.commit()
 
     # Create default niches
     if sample_data:
@@ -65,39 +69,11 @@ def seed(sample_data):
         for name, target in default_niches:
             if not Niche.query.filter_by(name=name).first():
                 niche = Niche(name=name, daily_story_target=target)
-                niche.save()
+                db.session.add(niche)
+                db.session.commit()
                 click.echo(f'Created niche: {name}')
 
     click.echo('Database seeded.')
-
-@cli.command('create-migration')
-@click.argument('message')
-def create_migration(message):
-    """Create a new migration"""
-    from flask_migrate import migrate
-    
-    click.echo('Creating migration...')
-    migrate(message=message)
-    click.echo('Migration created.')
-
-@cli.command('migrate')
-def migrate():
-    """Run database migrations"""
-    from flask_migrate import upgrade
-    
-    click.echo('Running migrations...')
-    upgrade()
-    click.echo('Migrations complete.')
-
-@cli.command('rollback')
-def rollback():
-    """Rollback last migration"""
-    from flask_migrate import downgrade
-    
-    if click.confirm('Are you sure you want to rollback the last migration?'):
-        click.echo('Rolling back migration...')
-        downgrade()
-        click.echo('Rollback complete.')
 
 @cli.command('status')
 def status():

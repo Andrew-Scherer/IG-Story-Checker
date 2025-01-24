@@ -21,7 +21,7 @@ def initialize_worker_pool(app, db):
                     session = Session.query.filter_by(proxy_id=proxy.id).first()
                     if session:
                         proxy_url = f"http://{proxy.ip}:{proxy.port}"
-                        app.worker_pool.add_proxy_session(proxy_url, session.session)
+                        app.worker_pool.add_proxies([proxy])
                         app.logger.info(f"4. Added proxy {proxy_url} with session {session.id} to WorkerPool")
                     else:
                         app.logger.warning(f"No session found for proxy {proxy.ip}:{proxy.port}, skipping")

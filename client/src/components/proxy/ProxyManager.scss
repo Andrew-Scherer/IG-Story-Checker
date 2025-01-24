@@ -102,6 +102,7 @@
       padding: $spacing-2 $spacing-4;
       text-align: left;
       border-bottom: 1px solid $border-light;
+      min-width: 100px; // Ensure columns don't get too narrow
     }
 
     th {
@@ -115,6 +116,26 @@
 
     td {
       vertical-align: middle;
+      font-size: $font-size-sm;
+
+      &.proxy-manager__error-cell {
+        color: $danger-color;
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+
+        &:hover {
+          white-space: normal;
+          word-break: break-word;
+          position: relative;
+          z-index: 2;
+          background-color: $background-secondary;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+          padding: $spacing-2;
+          border-radius: $border-radius;
+        }
+      }
     }
 
     tbody tr:hover {

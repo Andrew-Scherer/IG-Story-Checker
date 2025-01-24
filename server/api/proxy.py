@@ -4,11 +4,39 @@ Handles proxy management endpoints
 """
 
 from flask import Blueprint, request, jsonify, current_app
-from models import db, Proxy, Session
+from models import db, Proxy, Session, ProxyErrorLog
 from sqlalchemy import exc
 
 # Create blueprint
 proxy_bp = Blueprint('proxy', __name__)
+
+@proxy_bp.route('/<proxy_id>/error_logs', methods=['GET'])
+def get_proxy_error_logs(proxy_id):
+    """Get error logs for a specific proxy"""
+    try:
+        proxy = db.session.get(Proxy, proxy_id)
+        if not proxy:
+            return create_error_response(
+                'not_found',
+                f'Proxy {proxy_id} not found',
+                {'proxy_id': proxy_id},
+                404
+            )
+
+        # Fetch error logs, you can implement pagination if needed
+        error_logs = proxy.error_logs.limit(100).all()  # Limit to latest 100 logs
+        error_logs_data = [log.to_dict() for log in error_logs]
+
+        return jsonify(error_logs_data), 200
+
+    except Exception as e:
+        current_app.logger.exception(f"Error fetching error logs for proxy {proxy_id}: {e}")
+        return create_error_response(
+            'internal_server_error',
+            'An unexpected error occurred while fetching error logs.',
+            {'error': str(e)},
+            500
+        )
 
 def log_step(step: str, data: dict = None) -> None:
     """Log a step in the proxy management process"""
@@ -227,9 +255,11 @@ def update_status(proxy_id):
         )
     
     try:
-        proxy.is_active = (data['status'] == 'active')
+        new_status = data['status']
+        proxy.is_active = (new_status == 'active')
+        proxy.status = new_status
         db.session.commit()
-        log_step(f"Successfully updated proxy {proxy_id} status to {data['status']}")
+        log_step(f"Successfully updated proxy {proxy_id} status to {new_status}")
         return jsonify(proxy.to_dict())
     except Exception as e:
         db.session.rollback()

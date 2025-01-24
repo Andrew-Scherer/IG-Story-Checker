@@ -121,14 +121,18 @@ export const proxyStore = create((set, get) => ({
       const response = await proxies.updateStatus(proxyId, { status });
       console.log('Status updated successfully');
 
-      set((state) => ({
-        proxies: state.proxies.map(proxy =>
-          proxy.id === proxyId
-            ? { ...proxy, ...response }
-            : proxy
-        ),
-        loading: false
-      }));
+set((state) => ({
+  proxies: state.proxies.map(proxy =>
+    proxy.id === proxyId
+      ? {
+          ...proxy,
+          status: response.status,
+          is_active: response.status === 'active'
+        }
+      : proxy
+  ),
+  loading: false
+}));
     } catch (error) {
       console.error('Failed to update status:', error.response?.data || error);
       const apiError = new ApiError(error.response || error);

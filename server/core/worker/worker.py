@@ -109,18 +109,23 @@ class Worker:
 
     def _process_success_result(self, batch_profile: BatchProfile, has_story: bool):
         """Process successful story check result"""
+        end_time = datetime.now(UTC)
         batch_profile.status = 'completed'
         batch_profile.has_story = has_story
-        batch_profile.processed_at = datetime.now(UTC)
+        batch_profile.processed_at = end_time
         batch_profile.proxy_id = self.proxy_session.proxy.id
         batch_profile.error = None  # Clear any previous error
+
+        # Calculate response time in milliseconds
+        response_time = int((end_time - self.last_check).total_seconds() * 1000)
+        self.proxy_session.proxy.record_request(success=True, response_time=response_time)
 
         profile = batch_profile.profile
         profile.total_checks += 1
         if has_story:
             profile.total_detections += 1
             profile.active_story = True
-            profile.last_story_detected = datetime.now(UTC)
+            profile.last_story_detected = end_time
         else:
             profile.active_story = False
 
@@ -134,6 +139,9 @@ class Worker:
 
         is_rate_limit = "Rate limited" in str(e)
         self.state.record_error(is_rate_limit)
+
+        # Record error in proxy
+        self.proxy_session.proxy.record_request(success=False, error_msg=str(e))
 
         batch_profile.status = 'failed'
         batch_profile.error = error_msg

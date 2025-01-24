@@ -94,7 +94,7 @@ def create_app(config_object=None):
     cors = CORS(app, resources={
         r"/api/*": {
             "origins": ["http://localhost:3000"],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
             "allow_headers": ["Content-Type"]
         }
     })
@@ -108,14 +108,15 @@ def create_app(config_object=None):
     app.register_blueprint(api_bp)
     logger.info("[OK] API blueprints registered")
 
+    # Create all tables if they don't exist
+    with app.app_context():
+        db.create_all()
+        logger.info("[OK] Database tables created or verified")
+
     return app
 
 if __name__ == '__main__':
     app = create_app()
-
-    with app.app_context():
-        # Create all tables if they don't exist
-        db.create_all()
 
     # Run the application
     app.run(port=5000, debug=True)  # Enable debug mode to show error tracebacks

@@ -6,6 +6,7 @@ from .proxy import Proxy, ProxyStatus
 from .session import Session
 from .settings import SystemSettings
 from .story import StoryResult
+from .proxy_error_log import ProxyErrorLog
 
 __all__ = [
     'db',
@@ -17,5 +18,6 @@ __all__ = [
     'ProxyStatus',
     'Session',
     'SystemSettings',
-    'StoryResult'
+    'StoryResult',
+    'ProxyErrorLog'
 ]
