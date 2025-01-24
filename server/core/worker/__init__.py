@@ -6,6 +6,4 @@ Provides worker pool for story checking operations
 from .pool import WorkerPool
 from .worker import Worker
 from .worker_state import WorkerState
-from .proxy_manager import ProxyManager
-
-__all__ = ['WorkerPool', 'Worker', 'WorkerState', 'ProxyManager']
+__all__ = ['WorkerPool', 'Worker', 'WorkerState']

@@ -9,7 +9,6 @@ import './MasterList.scss';
 
 function MasterList() {
   const {
-    profiles,
     updateProfile,
     deleteProfiles,
     getFilteredProfiles,
@@ -80,26 +79,26 @@ function MasterList() {
       key: 'username',
       title: 'Username',
       sortable: true,
-        render: (profile) => (
-          <div className="master-list__username">
-            <a 
-              href={profile.url || `https://instagram.com/${profile.username}`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {profile.username}
-            </a>
-          </div>
-        )
+      render: (profile) => (
+        <div className="master-list__username">
+          <a
+            href={profile.url || `https://instagram.com/${profile.username}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {profile.username}
+          </a>
+        </div>
+      )
     },
     {
       key: 'niche',
       title: 'Niche',
       sortable: true,
-        render: (profile) => {
-          const niche = niches.find(n => n.id === profile.niche_id);
-          return niche?.name || '-';
-        }
+      render: (profile) => {
+        const niche = niches.find(n => n.id === profile.niche_id);
+        return niche?.name || '-';
+      }
     },
     {
       key: 'status',
@@ -131,8 +130,14 @@ function MasterList() {
     {
       key: 'stats',
       title: 'Story Detection Rate',
+      sortable: true,
+      sortValue: (profile) => {
+        return profile.total_checks
+          ? (profile.total_detections / profile.total_checks) * 100
+          : 0;
+      },
       render: (profile) => {
-        const rate = profile.total_checks 
+        const rate = profile.total_checks
           ? ((profile.total_detections / profile.total_checks) * 100).toFixed(1)
           : 0;
         return `${rate}%`;
@@ -169,7 +174,7 @@ function MasterList() {
             value={filters.status}
             onChange={(e) => setFilters({ status: e.target.value })}
           >
-            <option value="all">All Status</option>
+            <option value="">All Status</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
@@ -233,7 +238,7 @@ function MasterList() {
             <Button onClick={() => handleBulkAction('deactivate')}>
               Deactivate Selected
             </Button>
-            <Button 
+            <Button
               variant="danger"
               onClick={() => handleBulkAction('delete')}
             >

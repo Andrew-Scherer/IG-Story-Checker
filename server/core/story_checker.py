@@ -199,7 +199,7 @@ class StoryChecker:
     def _validate_stories_data(self, data: dict, username: str, user_id: str) -> bool:
         """Validate stories data structure"""
         if not data or 'reels' not in data or user_id not in data['reels']:
-            error_msg = f'Invalid stories data structure for {username}'
+            error_msg = f'Invalid stories data structure for {username}. Data received: {data}'
             current_app.logger.error(error_msg)
             self.proxy_session.record_failure()
             return False

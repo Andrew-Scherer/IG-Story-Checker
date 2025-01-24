@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Button from '../common/Button';
 import Table from '../common/Table';
+import Modal from '../common/Modal';
 import useBatchStore from '../../stores/batchStore';
 import BatchLogModal from './BatchLogModal';
 import './BatchTable.scss';
@@ -9,6 +10,9 @@ const BatchTable = () => {
   const [selectedBatches, setSelectedBatches] = useState([]);
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [selectedBatchId, setSelectedBatchId] = useState(null);
+  const [storiesModalOpen, setStoriesModalOpen] = useState(false);
+  const [storiesUsernames, setStoriesUsernames] = useState([]);
+
   const {
     batches,
     loading,
@@ -29,6 +33,13 @@ const BatchTable = () => {
     fetchBatches();
   }, [fetchBatches]);
 
+  const handleStoriesClick = (batch) => {
+    if (batch.profiles_with_stories && batch.profiles_with_stories.length > 0) {
+      setStoriesUsernames(batch.profiles_with_stories);
+      setStoriesModalOpen(true);
+    }
+  };
+
   const columns = [
     {
       key: 'niche',
@@ -46,6 +57,14 @@ const BatchTable = () => {
       render: (batch) => batch.status
     },
     {
+      key: 'completed_at',
+      title: 'Time Completed',
+      render: (batch) =>
+        batch.completed_at
+          ? new Date(batch.completed_at).toLocaleString()
+          : '-'
+    },
+    {
       key: 'queue_position',
       title: 'Queue Position',
       render: (batch) => {
@@ -58,15 +77,22 @@ const BatchTable = () => {
       key: 'success_rate',
       title: 'Success Rate',
       render: (batch) =>
-        batch.total_profiles ?
-          `${((batch.successful_checks / batch.total_profiles) * 100).toFixed(1)}%` :
-          '0%'
+        batch.total_profiles
+          ? `${((batch.successful_checks / batch.total_profiles) * 100).toFixed(1)}%`
+          : '0%'
     },
     {
       key: 'stories_found',
       title: 'Stories Found',
-      render: (batch) =>
-        `${batch.successful_checks}/${batch.total_profiles}`
+      render: (batch) => (
+        <span
+          className="stories-found"
+          onClick={() => handleStoriesClick(batch)}
+          style={{ cursor: 'pointer', color: batch.profiles_with_stories?.length ? 'blue' : 'gray' }}
+        >
+          {`${batch.successful_checks}/${batch.total_profiles}`}
+        </span>
+      )
     },
     {
       key: 'actions',
@@ -96,7 +122,11 @@ const BatchTable = () => {
       if (error.response && error.response.status === 409) {
         const errorData = error.response.data;
         const runningBatchIds = errorData.running_batch_ids || [];
-        const errorMessage = `Cannot start new batches. Batch${runningBatchIds.length > 1 ? 'es' : ''} ${runningBatchIds.join(', ')} ${runningBatchIds.length > 1 ? 'are' : 'is'} already running.`;
+        const errorMessage = `Cannot start new batches. Batch${
+          runningBatchIds.length > 1 ? 'es' : ''
+        } ${runningBatchIds.join(', ')} ${
+          runningBatchIds.length > 1 ? 'are' : 'is'
+        } already running.`;
         useBatchStore.getState().setError(errorMessage);
       } else {
         useBatchStore.getState().setError('Failed to start batches. Please try again.');
@@ -158,6 +188,26 @@ const BatchTable = () => {
         isOpen={logModalOpen}
         onClose={handleCloseLogModal}
       />
+
+      {storiesModalOpen && (
+        <Modal
+          title="Profiles with Stories"
+          isOpen={storiesModalOpen}
+          onClose={() => setStoriesModalOpen(false)}
+        >
+          <div className="stories-modal">
+            {storiesUsernames.length > 0 ? (
+              <textarea
+                readOnly
+                value={storiesUsernames.join('\n')}
+                style={{ width: '100%', height: '200px' }}
+              />
+            ) : (
+              <p>No profiles with stories found.</p>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

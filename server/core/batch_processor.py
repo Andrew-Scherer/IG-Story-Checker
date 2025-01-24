@@ -199,6 +199,10 @@ async def process_batch_async(batch_id: str, worker_pool: WorkerPool):
             with app.app_context():
                 QueueManager.mark_completed(batch.id)
 
+            # Set completed_at timestamp and commit
+            batch.completed_at = datetime.now(UTC)
+            db.session.commit()
+
             app.logger.info(f'Batch {batch.id} completed: {batch.successful_checks} successful, {batch.failed_checks} failed')
             BatchLogService.create_log(
                 batch_id,

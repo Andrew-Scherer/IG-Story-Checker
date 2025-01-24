@@ -87,22 +87,22 @@ def create_proxy():
                 {'port': data['port']}
             )
 
-            log_step("Starting transaction")
-            # Create proxy
-            # Sanitize IP to remove protocol prefixes
-            ip = data['ip']
-            if ip.startswith('socks5://'):
-                ip = ip[len('socks5://'):]
-            log_step("Creating proxy object")
-            proxy = Proxy(
-                ip=ip,
-                port=port,
-                username=data.get('username'),
-                password=data.get('password'),
-                is_active=True
-            )
-            db.session.add(proxy)
-            log_step("Proxy object added to session")
+        log_step("Starting transaction")
+        # Create proxy
+        # Sanitize IP to remove protocol prefixes
+        ip = data['ip']
+        if ip.startswith('socks5://'):
+            ip = ip[len('socks5://'):]
+        log_step("Creating proxy object")
+        proxy = Proxy(
+            ip=ip,
+            port=port,
+            username=data.get('username'),
+            password=data.get('password'),
+            is_active=True
+        )
+        db.session.add(proxy)
+        log_step("Proxy object added to session")
         
         # Create session
         log_step("Creating session object")
@@ -130,7 +130,7 @@ def create_proxy():
         }
         log_step("Returning successful response")
         return jsonify(result), 201
-        
+
     except exc.IntegrityError as e:
         db.session.rollback()
         log_step("Integrity error occurred", {'error': str(e)})

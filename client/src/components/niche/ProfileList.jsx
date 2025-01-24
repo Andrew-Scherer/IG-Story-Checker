@@ -10,10 +10,10 @@ const ProfileList = ({ nicheId }) => {
     updateProfile,
     loading,
     error,
-      selectedProfileIds,
-      setSelectedProfiles,
-      fetchProfiles
-    } = useProfileStore();
+    selectedProfileIds,
+    setSelectedProfiles,
+    fetchProfiles
+  } = useProfileStore();
 
   useEffect(() => {
     setFilters({ nicheId });
@@ -77,6 +77,17 @@ const ProfileList = ({ nicheId }) => {
       title: 'Last Story Detected',
       sortable: true,
       render: (profile) => formatDate(profile.last_story_detected)
+    },
+    {
+      key: 'stats',
+      title: 'Story Detection Rate',
+      sortable: true,
+      render: (profile) => {
+        const rate = profile.total_checks 
+          ? ((profile.total_detections / profile.total_checks) * 100).toFixed(1)
+          : 0;
+        return `${rate}%`;
+      }
     },
     {
       key: 'total_checks',

@@ -31,7 +31,8 @@ class Batch(BaseModel):
     queue_position = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = db.Column(db.DateTime(timezone=True), onupdate=lambda: datetime.now(UTC))
-    
+    completed_at = db.Column(db.DateTime(timezone=True), nullable=True)  # New field added
+
     # Relationships
     niche = db.relationship('Niche', backref=db.backref('batches', lazy=True))
     profiles = db.relationship('BatchProfile', back_populates='batch', lazy=True, cascade='all, delete-orphan')
@@ -72,6 +73,11 @@ class Batch(BaseModel):
                 except Exception as e:
                     current_app.logger.error(f"Error converting niche to dict for batch {self.id}: {str(e)}")
             
+            # Get list of profile usernames with stories found
+            profiles_with_stories = [
+                bp.profile.username for bp in self.profiles if bp.has_story
+            ]
+            
             return {
                 'id': self.id,
                 'niche_id': self.niche_id,
@@ -83,8 +89,10 @@ class Batch(BaseModel):
                 'failed_checks': self.failed_checks,
                 'queue_position': self.queue_position,
                 'completion_rate': self.completion_rate,
+                'profiles_with_stories': profiles_with_stories,
                 'created_at': self.created_at.isoformat() if self.created_at else None,
-                'updated_at': self.updated_at.isoformat() if self.updated_at else None
+                'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+                'completed_at': self.completed_at.isoformat() if self.completed_at else None  # Include in API response
             }
         except Exception as e:
             current_app.logger.error(f"Error in batch.to_dict(): {str(e)}")
@@ -108,6 +116,7 @@ class Batch(BaseModel):
         if self.completed_profiles >= self.total_profiles:
             self.status = 'done'
             self.queue_position = None  # Clear queue position when done
+            self.completed_at = datetime.now(UTC)  # Set completion time
         
         self.save(session=session)
 

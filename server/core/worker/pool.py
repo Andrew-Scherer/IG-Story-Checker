@@ -14,7 +14,7 @@ from models.session import Session
 from models import db, Batch
 from core.proxy_session import ProxySession
 from .worker import Worker
-from .proxy_manager import ProxyManager
+from core.proxy_manager import ProxyManager
 from flask import current_app
 
 class WorkerPool:
