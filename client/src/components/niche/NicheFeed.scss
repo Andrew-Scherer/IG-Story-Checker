@@ -2,7 +2,7 @@
 
 .niche-feed {
   display: flex;
-  height: 100%;
+  flex: 1;
   background: $background-primary;
   border-radius: $border-radius;
   box-shadow: $shadow-sm;
@@ -132,7 +132,8 @@
     flex: 1;
     min-width: 0;
 
-    &:hover, &:focus {
+    &:hover,
+    &:focus {
       background: rgba($primary-color, 0.05);
       outline: none;
     }

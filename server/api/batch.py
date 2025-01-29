@@ -7,7 +7,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app
 from models import db, Batch
 from services.story_service import cleanup_expired_stories
-from services.queue_manager import QueueManager
+from services.queue_manager import queue_manager  # Import the singleton instance
 from services.batch_log_service import BatchLogService
 from config.logging_config import setup_blueprint_logging
 from worker_manager import initialize_worker_pool
@@ -55,7 +55,7 @@ def create_batch():
 
         # Check if position 0 is available
         logger.info("3. Checking queue position...")
-        running_batch = QueueManager.get_running_batch()
+        running_batch = queue_manager.get_running_batch()
         if not running_batch:
             # Initialize position 0 but keep as queued until processing starts
             logger.info("4. Position 0 available, preparing to start batch...")
@@ -65,7 +65,7 @@ def create_batch():
             # Queue this batch
             logger.info("4. Position 0 taken, queueing batch...")
             batch.status = 'queued'
-            batch.queue_position = QueueManager.get_next_position()
+            batch.queue_position = queue_manager.get_next_position()
 
         # Commit the batch first to avoid foreign key violations
         db.session.commit()
@@ -128,7 +128,7 @@ def start_batches():
 
         # Check if position 0 is taken
         logger.info("3. Checking queue position...")
-        if QueueManager.get_running_batch():
+        if queue_manager.get_running_batch():
             return jsonify({'error': 'Another batch is already running'}), 409
 
         # Get batches to start
@@ -151,7 +151,7 @@ def start_batches():
             else:  # Queue remaining batches
                 logger.info(f"6. Queueing batch {batch.id}...")
                 batch.status = 'queued'
-                batch.queue_position = QueueManager.get_next_position()
+                batch.queue_position = queue_manager.get_next_position()
                 BatchLogService.create_log(batch.id, 'INFO', f'Queued at position {batch.queue_position}')
 
         db.session.commit()
@@ -191,14 +191,14 @@ def stop_batches():
             if batch.queue_position == 0:  # Only stop running batch
                 logger.info(f"5. Stopping batch {batch.id}...")
                 current_app.worker_pool.unregister_batch(batch.id)
-                QueueManager.move_to_end(batch)
+                queue_manager.move_to_end(batch)
                 BatchLogService.create_log(batch.id, 'INFO', f'Stopped batch {batch.id}')
 
         # Promote next batch if needed
         logger.info("6. Checking for next batch...")
-        if not QueueManager.get_running_batch():
+        if not queue_manager.get_running_batch():
             logger.info("7. Promoting next batch...")
-            QueueManager.promote_next_batch()
+            queue_manager.promote_next_batch()
 
         logger.info("8. Batch stop process complete")
         return jsonify([batch.to_dict() for batch in batches])
@@ -245,9 +245,9 @@ def delete_batches():
         # Reorder queue and promote next batch if needed
         logger.info("7. Reordering queue...")
         reorder_queue()  # Call the reorder_queue function directly
-        if not QueueManager.get_running_batch():
+        if not queue_manager.get_running_batch():
             logger.info("8. Promoting next batch...")
-            QueueManager.promote_next_batch()
+            queue_manager.promote_next_batch()
 
         logger.info("9. Batch deletion complete")
         return '', 204

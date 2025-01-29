@@ -8,9 +8,6 @@ This service manages the queue of batches, including:
 - Promoting the next batch in the queue to the running position
 - Moving batches to the end of the queue
 - Marking batches as completed and automatically promoting the next batch
-
-The QueueManager ensures that batches are processed in order and that
-the next batch is automatically started when the current one completes.
 """
 
 from typing import Optional
@@ -18,9 +15,18 @@ from flask import current_app
 from models import db, Batch
 from worker_manager import initialize_worker_pool
 from services.batch_log_service import BatchLogService
-from services.queue_ordering import reorder_queue
+from services.batch_state_manager import BatchStateManager
+from services.batch_execution_manager import BatchExecutionManager
+from core.interfaces.batch_management import IBatchStateManager, IBatchExecutionManager
 
 class QueueManager:
+    """Manages batch queue operations using state and execution managers"""
+
+    def __init__(self):
+        """Initialize QueueManager with state and execution managers"""
+        self.state_manager = BatchStateManager()
+        self.execution_manager = BatchExecutionManager(self.state_manager)
+
     @staticmethod
     def get_next_position() -> int:
         """Get next available queue position"""
@@ -31,19 +37,11 @@ class QueueManager:
         current_app.logger.info(f"Next available position: {next_pos}")
         return next_pos
 
-    @staticmethod
-    def get_running_batch() -> Optional[Batch]:
+    def get_running_batch(self) -> Optional[Batch]:
         """Get currently running batch (position 0)"""
-        current_app.logger.info("Checking for running batch...")
-        batch = Batch.query.filter_by(queue_position=0).first()
-        if batch:
-            current_app.logger.info(f"Found running batch: {batch.id}")
-        else:
-            current_app.logger.info("No running batch found")
-        return batch
+        return self.state_manager.get_running_batch()
 
-    @staticmethod
-    def promote_next_batch() -> Optional[Batch]:
+    def promote_next_batch(self) -> Optional[Batch]:
         """Promote position 1 to position 0 and start it
 
         Returns:
@@ -55,103 +53,41 @@ class QueueManager:
             current_app.logger.info(f"1. Found next batch: {next_batch.id}")
             BatchLogService.create_log(next_batch.id, 'INFO', f'Found batch to promote')
 
-            # Move to position 0 but keep as queued until processing starts
+            # Move to position 0
             current_app.logger.info("2. Moving batch to position 0...")
-            next_batch.queue_position = 0
-            next_batch.completed_profiles = 0
-            next_batch.successful_checks = 0
-            next_batch.failed_checks = 0
+            self.state_manager.update_queue_position(next_batch, 0)
             BatchLogService.create_log(next_batch.id, 'INFO', f'Moved to position 0')
 
-            # Reset all batch profiles
-            current_app.logger.info("3. Resetting batch profiles...")
-            for batch_profile in next_batch.profiles:
-                batch_profile.status = 'pending'
-                batch_profile.has_story = False
-                batch_profile.error = None
-                batch_profile.processed_at = None
-            BatchLogService.create_log(next_batch.id, 'INFO', f'Reset all profiles')
-
-            current_app.logger.info("4. Checking worker pool...")
+            current_app.logger.info("3. Checking worker pool...")
             if not hasattr(current_app, 'worker_pool'):
-                current_app.logger.info("5. Initializing worker pool...")
+                current_app.logger.info("4. Initializing worker pool...")
                 initialize_worker_pool(current_app, db)
                 BatchLogService.create_log(next_batch.id, 'INFO', f'Initialized worker pool')
 
-            current_app.logger.info("6. Registering batch with worker pool...")
+            current_app.logger.info("5. Registering batch with worker pool...")
             current_app.worker_pool.register_batch(next_batch.id)
             BatchLogService.create_log(next_batch.id, 'INFO', f'Registered with worker pool')
 
-            db.session.commit()
-
-            # Import and submit after commit to avoid circular imports
-            current_app.logger.info("7. Submitting batch for processing...")
-            from core.batch_processor import process_batch
-            current_app.worker_pool.submit(process_batch, next_batch.id)
+            # Execute batch
+            current_app.logger.info("6. Submitting batch for processing...")
+            current_app.worker_pool.submit(self.execution_manager.execute_batch, next_batch.id)
             BatchLogService.create_log(next_batch.id, 'INFO', f'Submitted for processing')
 
-            current_app.logger.info("8. Reordering remaining batches...")
-            reorder_queue()
-            db.session.commit()
-            current_app.logger.info("9. Batch promotion complete")
+            current_app.logger.info("7. Batch promotion complete")
 
         else:
             current_app.logger.info("No batch found at position 1")
 
         return next_batch
 
-    @staticmethod
-    def move_to_end(batch: Batch) -> None:
+    def move_to_end(self, batch: Batch) -> None:
         """Move batch to end of queue and reset its progress"""
-        if batch:
-            current_app.logger.info(f"=== Moving Batch {batch.id} to End ===")
+        self.state_manager.move_to_end(batch)
 
-            # Reset batch progress
-            current_app.logger.info("1. Resetting batch progress...")
-            batch.status = 'queued'
-            batch.completed_profiles = 0
-            batch.successful_checks = 0
-            batch.failed_checks = 0
-            BatchLogService.create_log(batch.id, 'INFO', f'Reset batch progress')
+    def mark_completed(self, batch_id: str) -> None:
+        """Mark batch as completed and promote next batch"""
+        self.state_manager.mark_completed(batch_id)
+        self.promote_next_batch()
 
-            # Reset all batch profiles
-            current_app.logger.info("2. Resetting batch profiles...")
-            for batch_profile in batch.profiles:
-                batch_profile.status = 'pending'
-                batch_profile.has_story = False
-                batch_profile.error = None
-                batch_profile.processed_at = None
-            BatchLogService.create_log(batch.id, 'INFO', f'Reset all profiles')
-
-            # Move to end of queue
-            current_app.logger.info("3. Moving to end of queue...")
-            last_position = db.session.query(db.func.max(Batch.queue_position))\
-                .filter(Batch.queue_position.isnot(None)).scalar() or 0
-            batch.queue_position = last_position + 1
-            BatchLogService.create_log(batch.id, 'INFO', f'Moved to position {batch.queue_position}')
-
-            db.session.commit()
-            current_app.logger.info("4. Move to end complete")
-
-    @staticmethod
-    def mark_completed(batch_id: str) -> None:
-        """Mark batch as completed"""
-        batch = db.session.get(Batch, batch_id)
-        if batch:
-            current_app.logger.info(f"=== Marking Batch {batch.id} Complete ===")
-            batch.status = 'done'
-            batch.queue_position = None
-            BatchLogService.create_log(batch.id, 'INFO', f'Marked as completed')
-            db.session.commit()
-            current_app.logger.info("Batch marked complete")
-            
-            current_app.logger.info("Reordering queue after batch completion")
-            reorder_queue()
-            db.session.commit()
-            current_app.logger.info("Queue reordering complete")
-
-            current_app.logger.info("Promoting next batch")
-            QueueManager.promote_next_batch()
-            current_app.logger.info("Next batch promotion complete")
-        else:
-            current_app.logger.error(f"Batch {batch_id} not found in mark_completed")
+# Create singleton instance
+queue_manager = QueueManager()

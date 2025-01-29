@@ -1,6 +1,7 @@
 import pytest
 import sys
 import os
+from sqlalchemy.orm import sessionmaker
 
 # Add the server directory to the Python path
 server_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -22,6 +23,18 @@ def db(app):
         yield _db
         _db.session.remove()
         _db.drop_all()
+
+@pytest.fixture(scope='function')
+def db_session(db):
+    connection = db.engine.connect()
+    transaction = connection.begin()
+    session = sessionmaker(bind=connection)()
+
+    yield session
+
+    transaction.rollback()
+    connection.close()
+    session.close()
 
 @pytest.fixture(scope='function')
 def client(app):

@@ -120,6 +120,7 @@ class Profile(BaseModel):
             'username': self.username,
             'url': self.url,
             'niche_id': self.niche_id,
+            'niche': self.niche.name if self.niche else None,
             'status': self.status,
             'active_story': self.active_story,
             'last_story_detected': self.last_story_detected.isoformat() if self.last_story_detected else None,

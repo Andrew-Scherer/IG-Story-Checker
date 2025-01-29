@@ -6,7 +6,7 @@ import './Table.scss';
 const Table = ({
   data,
   columns,
-  pageSize = 100,
+  pageSize = 1000,
   selectable = false,
   selectedRows = [],
   onSelectionChange = () => {},
@@ -23,29 +23,62 @@ const Table = ({
   const sortDirection = externalSortDirection || internalSortDirection;
 
   const handleSort = (key) => {
+    console.log('handleSort called with key:', key);
     const newDirection = sortColumn === key && sortDirection === 'asc' ? 'desc' : 'asc';
+    console.log('New sort direction:', newDirection);
     
     if (externalOnSort) {
+      console.log('Using external sort');
       externalOnSort(key, newDirection);
     } else {
+      console.log('Using internal sort');
       setInternalSortColumn(key);
       setInternalSortDirection(newDirection);
     }
   };
 
   const sortedData = useMemo(() => {
+    console.log('sortedData useMemo running');
+    console.log('Current sortColumn:', sortColumn);
+    console.log('Current sortDirection:', sortDirection);
+    console.log('Data sample:', data.slice(0, 5));
+
     if (!sortColumn) return data;
 
     return [...data].sort((a, b) => {
-      const aValue = a[sortColumn];
-      const bValue = b[sortColumn];
+      let aValue, bValue;
+
+      // Handle nested properties (e.g., niche.name)
+      if (sortColumn.includes('.')) {
+        const keys = sortColumn.split('.');
+        aValue = keys.reduce((obj, key) => obj && obj[key], a);
+        bValue = keys.reduce((obj, key) => obj && obj[key], b);
+      } else {
+        aValue = a[sortColumn];
+        bValue = b[sortColumn];
+      }
+
+      console.log('Sorting values:', { sortColumn, aValue, bValue, aObject: a, bObject: b });
+
+      // Handle cases where the value might be undefined (e.g., niche might be null)
+      aValue = aValue === undefined || aValue === null ? '' : aValue;
+      bValue = bValue === undefined || bValue === null ? '' : bValue;
+
       const modifier = sortDirection === 'asc' ? 1 : -1;
 
-      if (aValue < bValue) return -1 * modifier;
-      if (aValue > bValue) return 1 * modifier;
-      return 0;
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return aValue.localeCompare(bValue) * modifier;
+      } else {
+        if (aValue < bValue) return -1 * modifier;
+        if (aValue > bValue) return 1 * modifier;
+        return 0;
+      }
     });
   }, [data, sortColumn, sortDirection]);
+
+  console.log('Sorted data sample:', sortedData.slice(0, 5));
+
+  console.log('Sorted data sample:', sortedData.slice(0, 5));
 
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * pageSize;

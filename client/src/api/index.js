@@ -75,7 +75,7 @@ export const niches = {
 };
 
 export const profiles = {
-  list: () => axiosInstance.get('/profiles').then(res => res.data),
+  list: (params) => axiosInstance.get('/profiles', { params }).then(res => res.data),
   create: (data) => axiosInstance.post('/profiles', data).then(res => res.data),
   update: (id, data) => axiosInstance.put(`/profiles/${id}`, data).then(res => res.data),
   delete: (id) => axiosInstance.delete(`/profiles/${id}`).then(res => res.data),
@@ -90,6 +90,33 @@ export const profiles = {
   },
   refreshStories: () => axiosInstance.post('/profiles/refresh-stories').then(res => res.data)
 };
+
+// Add more detailed error logging
+axiosInstance.interceptors.response.use(
+  response => {
+    console.log(`=== API Response ===`);
+    console.log(`Status: ${response.status}`);
+    console.log('Response headers:', response.headers);
+    console.log('Response data:', response.data);
+    return response;
+  },
+  error => {
+    console.error('!!! API Error !!!');
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response headers:', error.response.headers);
+      console.error('Response data:', error.response.data);
+    } else if (error.request) {
+      console.error('No response received');
+      console.error('Request details:', error.request);
+    } else {
+      console.error('Error setting up request:', error.message);
+    }
+    console.error('Error config:', error.config);
+    console.error('Full error object:', error);
+    throw error;
+  }
+);
 
 export const batches = {
   list: () => axiosInstance.get('/batches').then(res => res.data),

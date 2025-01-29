@@ -18,14 +18,15 @@ function NicheFeed() {
     fetchNiches
   } = useNicheStore();
 
-  const { 
-    getProfilesByNiche, 
-    fetchProfiles, 
-    importFromFile, 
+  const {
+    getProfilesByNiche,
+    fetchProfiles,
+    importFromFile,
     setFilters,
     selectedProfileIds,
     setSelectedProfiles,
-    refreshStories
+    refreshStories,
+    profiles
   } = useProfileStore();
 
   const { createBatch } = useBatchStore();
@@ -68,6 +69,14 @@ function NicheFeed() {
   };
 
   const niches = getNiches() || [];
+  console.log('Niches:', JSON.stringify(niches)); // Debug log with stringified array
+  console.log('Profiles:', JSON.stringify(profiles)); // Debug log for profiles
+
+  const getProfileCount = (nicheId) => {
+    const nicheProfiles = getProfilesByNiche(nicheId);
+    console.log(`Profiles for niche ${nicheId}:`, nicheProfiles); // Debug log for profiles per niche
+    return nicheProfiles.length;
+  };
 
   return (
     <div className="niche-feed">
@@ -98,38 +107,42 @@ function NicheFeed() {
         )}
 
         <div className="niche-feed__list">
-          {niches.map((niche) => (
-            <div
-              key={niche.id}
-              className={`niche-feed__item ${
-                selectedNicheId === niche.id ? 'niche-feed__item--selected' : ''
-              }`}
-              onClick={() => handleNicheClick(niche.id)}
-              data-testid="niche-item"
-            >
-              <div className="niche-feed__content">
-                <input
-                  type="text"
-                  value={niche.name}
-                  onChange={(e) => handleNameChange(e, niche.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  className="niche-feed__name"
-                  data-testid="niche-name-input"
-                />
-                <span className="niche-feed__counter">
-                  {getProfilesByNiche(niche.id).length} profiles
-                </span>
-              </div>
-              <Button
-                variant="danger"
-                size="small"
-                onClick={(e) => handleDelete(e, niche.id)}
-                data-testid="delete-button"
+          {niches.length === 0 ? (
+            <div>No niches found</div>
+          ) : (
+            niches.map((niche) => (
+              <div
+                key={niche.id}
+                className={`niche-feed__item ${
+                  selectedNicheId === niche.id ? 'niche-feed__item--selected' : ''
+                }`}
+                onClick={() => handleNicheClick(niche.id)}
+                data-testid="niche-item"
               >
-                X
-              </Button>
-            </div>
-          ))}
+                <div className="niche-feed__content">
+                  <input
+                    type="text"
+                    value={niche.name}
+                    onChange={(e) => handleNameChange(e, niche.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="niche-feed__name"
+                    data-testid="niche-name-input"
+                  />
+                  <span className="niche-feed__counter">
+                    {getProfileCount(niche.id)} profiles
+                  </span>
+                </div>
+                <Button
+                  variant="danger"
+                  size="small"
+                  onClick={(e) => handleDelete(e, niche.id)}
+                  data-testid="delete-button"
+                >
+                  X
+                </Button>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

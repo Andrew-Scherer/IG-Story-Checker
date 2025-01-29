@@ -1,0 +1,35 @@
+@import '../../styles/variables';
+
+.change-niche {
+  &__list {
+    list-style-type: none;
+    padding: 0;
+    margin: 0 0 $spacing-4;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  &__item {
+    padding: $spacing-2 0;
+    border-bottom: 1px solid $border-light;
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+
+  &__label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+  }
+
+  &__radio {
+    margin-right: $spacing-2;
+  }
+
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+}

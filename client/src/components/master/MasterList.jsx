@@ -5,6 +5,8 @@ import Table from '../common/Table';
 import Button from '../common/Button';
 import Modal from '../common/Modal';
 import Input from '../common/Input';
+import ChangeNiche from '../niche/ChangeNiche';
+import Pagination from '../common/Pagination';
 import './MasterList.scss';
 
 function MasterList() {
@@ -26,11 +28,17 @@ function MasterList() {
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [showProfileStats, setShowProfileStats] = useState(null);
   const [showHistory, setShowHistory] = useState(null);
+  const [showChangeNiche, setShowChangeNiche] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortColumn, setSortColumn] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
+  const pageSize = 1000;
 
   // Apply initial filters
   useEffect(() => {
     setFilters({ search: searchTerm });
+    setCurrentPage(1);
   }, [searchTerm, setFilters]);
 
   const handleBulkAction = async (action) => {
@@ -95,6 +103,10 @@ function MasterList() {
       key: 'niche',
       title: 'Niche',
       sortable: true,
+      sortValue: (profile) => {
+        const niche = niches.find(n => n.id === profile.niche_id);
+        return niche?.name || '';
+      },
       render: (profile) => {
         const niche = niches.find(n => n.id === profile.niche_id);
         return niche?.name || '-';
@@ -149,6 +161,24 @@ function MasterList() {
     return getFilteredProfiles();
   }, [getFilteredProfiles]);
 
+  const paginatedProfiles = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredProfiles.slice(startIndex, startIndex + pageSize);
+  }, [filteredProfiles, currentPage, pageSize]);
+
+  const totalPages = Math.ceil(filteredProfiles.length / pageSize);
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleSort = (column, direction) => {
+    setSortColumn(column);
+    setSortDirection(direction);
+    const sortColumn = column === 'niche' ? 'niche__name' : column;
+    fetchProfiles({ sortColumn, sortDirection: direction });
+  };
+
   return (
     <div className="master-list">
       <div className="master-list__header">
@@ -158,6 +188,7 @@ function MasterList() {
             placeholder="Search profiles..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ width: '200px' }} // Reduce width of search bar
           />
           <select
             value={filters.nicheId || ''}
@@ -178,6 +209,9 @@ function MasterList() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          <Button onClick={() => setShowChangeNiche(true)}>
+            Change Niche
+          </Button>
         </div>
 
         <div className="master-list__actions">
@@ -216,12 +250,20 @@ function MasterList() {
       {error && <div className="master-list__error">{error}</div>}
 
       <Table
-        data={filteredProfiles}
+        data={paginatedProfiles}
         columns={columns}
-        pageSize={50}
         selectable={true}
         selectedRows={selectedIds}
         onSelectionChange={setSelectedIds}
+        onSort={handleSort}
+        sortColumn={sortColumn}
+        sortDirection={sortDirection}
+      />
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={handlePageChange}
       />
 
       {/* Bulk Actions Modal */}
@@ -318,6 +360,12 @@ function MasterList() {
           </div>
         </Modal>
       )}
+
+      {/* Change Niche Modal */}
+      <ChangeNiche
+        isOpen={showChangeNiche}
+        onClose={() => setShowChangeNiche(false)}
+      />
     </div>
   );
 }

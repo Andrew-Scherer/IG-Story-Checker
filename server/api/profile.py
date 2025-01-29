@@ -4,6 +4,7 @@ Handles HTTP endpoints for profile management
 """
 
 import re
+import traceback
 from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -17,11 +18,13 @@ profile_bp = Blueprint('profile', __name__)
 
 @profile_bp.route('', methods=['GET'])
 def list_profiles():
-    """Get list of profiles with optional filtering"""
+    """Get list of profiles with optional filtering, sorting, and pagination"""
     try:
         current_app.logger.debug("Building profile query")
-        stmt = select(Profile)
+        from models.niche import Niche  # Import Niche model
+        stmt = select(Profile, Niche.name.label('niche_name')).outerjoin(Niche)
         
+        # Filtering
         if 'status' in request.args:
             status = request.args['status']
             current_app.logger.debug(f"Filtering by status: {status}")
@@ -30,18 +33,79 @@ def list_profiles():
         if 'niche_id' in request.args:
             niche_id = request.args['niche_id']
             current_app.logger.debug(f"Filtering by niche_id: {niche_id}")
-            stmt = stmt.where(Profile.niche_id == niche_id)
-            
+            if niche_id == 'null':
+                stmt = stmt.where(Profile.niche_id.is_(None))
+            else:
+                stmt = stmt.where(Profile.niche_id == niche_id)
+        
+        # Sorting
+        sort_column = request.args.get('sort_by', 'id')
+        sort_direction = request.args.get('sort_direction', 'asc')
+        current_app.logger.debug(f"Received sort parameters: column={sort_column}, direction={sort_direction}")
+
+        if sort_column == 'niche__name':
+            if sort_direction == 'desc':
+                stmt = stmt.order_by(Niche.name.desc())
+            else:
+                stmt = stmt.order_by(Niche.name.asc())
+        elif hasattr(Profile, sort_column):
+            order_column = getattr(Profile, sort_column)
+            if sort_direction == 'desc':
+                stmt = stmt.order_by(order_column.desc())
+            else:
+                stmt = stmt.order_by(order_column.asc())
+        else:
+            stmt = stmt.order_by(Profile.id)  # Default sorting
+        
+        current_app.logger.debug(f"Final sort column: {sort_column}")
+        
+        # Pagination
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 1000))
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        
         current_app.logger.debug("Executing profile query")
-        profiles = db.session.execute(stmt).scalars().all()
-        result = [profile.to_dict() for profile in profiles]
-        current_app.logger.debug(f"Found {len(result)} profiles")
-        return jsonify(result)
+        profiles_with_niches = db.session.execute(stmt).all()
+        result = [
+            {**profile.to_dict(), 'niche': niche_name, 'niche__name': niche_name}
+            for profile, niche_name in profiles_with_niches
+        ]
+        
+        # Get total count (apply the same filters as the main query)
+        count_stmt = select(db.func.count()).select_from(Profile).outerjoin(Niche)
+        if 'status' in request.args:
+            count_stmt = count_stmt.where(Profile.status == status)
+        if 'niche_id' in request.args:
+            if niche_id == 'null':
+                count_stmt = count_stmt.where(Profile.niche_id.is_(None))
+            else:
+                count_stmt = count_stmt.where(Profile.niche_id == niche_id)
+        total_count = db.session.execute(count_stmt).scalar()
+
+        # Count profiles without a niche
+        no_niche_count = db.session.execute(select(db.func.count()).select_from(Profile).where(Profile.niche_id.is_(None))).scalar()
+        
+        current_app.logger.debug(f"Found {len(result)} profiles (after pagination), total: {total_count}, profiles without niche: {no_niche_count}")
+        current_app.logger.debug(f"Sample profile: {result[0] if result else None}")
+        current_app.logger.debug(f"Niche names of returned profiles: {[profile.get('niche__name') for profile in result]}")
+        current_app.logger.debug(f"Main query SQL: {stmt.compile(compile_kwargs={'literal_binds': True})}")
+        current_app.logger.debug(f"Count query SQL: {count_stmt.compile(compile_kwargs={'literal_binds': True})}")
+        
+        return jsonify({
+            'profiles': result,
+            'total': total_count,
+            'no_niche_count': no_niche_count,
+            'page': page,
+            'page_size': page_size,
+            'sort_column': sort_column,
+            'sort_direction': sort_direction
+        })
         
     except Exception as e:
         current_app.logger.error(f"Error listing profiles: {str(e)}")
+        current_app.logger.exception("Exception traceback:")
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 
 @profile_bp.route('/<profile_id>', methods=['GET'])
 def get_profile(profile_id):

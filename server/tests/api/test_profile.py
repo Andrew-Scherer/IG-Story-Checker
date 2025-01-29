@@ -11,7 +11,8 @@ import logging
 logging.basicConfig()
 logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
-def test_list_profiles(client, db_session):
+@pytest.mark.usefixtures("db_session")
+def test_list_profiles(client):
     """Test GET /api/profiles"""
     # Create test profiles
     profiles = [
@@ -69,7 +70,8 @@ def test_list_profiles(client, db_session):
     assert len(data) == 1
     assert data[0]['username'] == 'niche_user'
 
-def test_create_profile(client, db_session):
+@pytest.mark.usefixtures("db_session")
+def test_create_profile(client):
     """Test POST /api/profiles"""
     # Test valid creation
     response = client.post('/api/profiles', json={
@@ -113,7 +115,8 @@ def test_create_profile(client, db_session):
     assert response.status_code == 400
     assert b'Invalid status' in response.data
 
-def test_bulk_create_profiles(client, db_session):
+@pytest.mark.usefixtures("db_session")
+def test_bulk_create_profiles(client):
     """Test POST /api/profiles/bulk"""
     profiles = [
         {'username': 'bulk1'},
@@ -147,7 +150,8 @@ def test_bulk_create_profiles(client, db_session):
     assert len(data['created']) == 2  # bulk4 and bulk5
     assert len(data['errors']) == 2  # bulk1 and empty
 
-def test_get_profile(client, db_session):
+@pytest.mark.usefixtures("db_session")
+def test_get_profile(client):
     """Test GET /api/profiles/<id>"""
     # Create test profile
     response = client.post('/api/profiles', json={
@@ -166,7 +170,8 @@ def test_get_profile(client, db_session):
     response = client.get('/api/profiles/999999')
     assert response.status_code == 404
 
-def test_update_profile(client, db_session):
+@pytest.mark.usefixtures("db_session")
+def test_update_profile(client):
     """Test PUT /api/profiles/<id>"""
     # Create test profile
     response = client.post('/api/profiles', json={
@@ -198,7 +203,8 @@ def test_update_profile(client, db_session):
     })
     assert response.status_code == 404
 
-def test_delete_profile(client, db_session):
+@pytest.mark.usefixtures("db_session")
+def test_delete_profile(client):
     """Test DELETE /api/profiles/<id>"""
     # Create test profile
     response = client.post('/api/profiles', json={
@@ -221,7 +227,8 @@ def test_delete_profile(client, db_session):
     response = client.delete('/api/profiles/999999')
     assert response.status_code == 404
 
-def test_reactivate_profile(client, db_session):
+@pytest.mark.usefixtures("db_session")
+def test_reactivate_profile(client):
     """Test POST /api/profiles/<id>/reactivate"""
     # Create and delete test profile
     response = client.post('/api/profiles', json={
@@ -243,7 +250,8 @@ def test_reactivate_profile(client, db_session):
     response = client.post('/api/profiles/999999/reactivate')
     assert response.status_code == 404
 
-def test_record_check(client, db_session):
+@pytest.mark.usefixtures("db_session")
+def test_record_check(client):
     """Test POST /api/profiles/<id>/record_check"""
     # Create test profile
     response = client.post('/api/profiles', json={
@@ -279,3 +287,56 @@ def test_record_check(client, db_session):
         'story_detected': True
     })
     assert response.status_code == 404
+
+@pytest.mark.usefixtures("db_session")
+def test_sort_profiles_by_niche(client, db_session):
+    """Test sorting profiles by niche"""
+    print("\n--- Starting test_sort_profiles_by_niche ---")
+
+    # Create test niches
+    niche1 = client.post('/api/niches', json={'name': 'Niche A'}).get_json()
+    niche2 = client.post('/api/niches', json={'name': 'Niche B'}).get_json()
+    niche3 = client.post('/api/niches', json={'name': 'Niche C'}).get_json()
+    print(f"Created niches: {niche1}, {niche2}, {niche3}")
+
+    # Create test profiles with different niches
+    profiles = [
+        {'username': 'user1', 'niche_id': niche2['id']},
+        {'username': 'user2', 'niche_id': niche1['id']},
+        {'username': 'user3', 'niche_id': niche3['id']},
+        {'username': 'user4', 'niche_id': niche2['id']}
+    ]
+    for profile in profiles:
+        response = client.post('/api/profiles', json=profile)
+        print(f"Created profile: {response.get_json()}")
+
+    # Commit the changes to the database
+    db_session.commit()
+
+    # Verify profiles in database
+    from models.profile import Profile
+    db_profiles = db_session.query(Profile).all()
+    print(f"Profiles in database: {[(p.username, p.niche_id) for p in db_profiles]}")
+
+    # Clear the session to ensure fresh data is loaded
+    db_session.expunge_all()
+
+    # Test sorting by niche in ascending order
+    response = client.get('/api/profiles?sort_by=niche__name&sort_direction=asc')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    profiles = data['profiles']
+    print(f"Sorted profiles (asc): {[(p['username'], p['niche__name']) for p in profiles]}")
+    assert [p['niche__name'] for p in profiles] == ['Niche A', 'Niche B', 'Niche B', 'Niche C']
+    assert [p['username'] for p in profiles] == ['user2', 'user1', 'user4', 'user3']
+
+    # Test sorting by niche in descending order
+    response = client.get('/api/profiles?sort_by=niche__name&sort_direction=desc')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    profiles = data['profiles']
+    print(f"Sorted profiles (desc): {[(p['username'], p['niche__name']) for p in profiles]}")
+    assert [p['niche__name'] for p in profiles] == ['Niche C', 'Niche B', 'Niche B', 'Niche A']
+    assert [p['username'] for p in profiles] == ['user3', 'user1', 'user4', 'user2']
+
+    print("--- Finished test_sort_profiles_by_niche ---")

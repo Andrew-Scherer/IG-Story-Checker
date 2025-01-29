@@ -1,18 +1,24 @@
 import React, { useEffect } from 'react';
 import useProfileStore from '../../stores/profileStore';
 import Table from '../common/Table';
+import Pagination from '../common/Pagination';
 import './ProfileList.scss';
 
 const ProfileList = ({ nicheId }) => {
   const {
-    setFilters,
-    getFilteredProfiles,
-    updateProfile,
+    profiles,
+    totalProfiles,
+    currentPage,
+    pageSize,
+    sortColumn,
+    sortDirection,
     loading,
     error,
     selectedProfileIds,
+    setFilters,
     setSelectedProfiles,
-    fetchProfiles
+    fetchProfiles,
+    updateProfile
   } = useProfileStore();
 
   useEffect(() => {
@@ -20,7 +26,30 @@ const ProfileList = ({ nicheId }) => {
     fetchProfiles();
   }, [nicheId, setFilters, fetchProfiles]);
 
-  const profiles = getFilteredProfiles();
+  useEffect(() => {
+    console.log('ProfileList - Current profiles:', profiles);
+    console.log('ProfileList - Current sort column:', sortColumn);
+    console.log('ProfileList - Current sort direction:', sortDirection);
+  }, [profiles, sortColumn, sortDirection]);
+
+  const handlePageChange = (page) => {
+    console.log('ProfileList - Changing page to:', page);
+    fetchProfiles({ page });
+  };
+
+  const handleSort = (column) => {
+    console.log('ProfileList - Sorting by column:', column);
+    const direction = column === sortColumn && sortDirection === 'asc' ? 'desc' : 'asc';
+    console.log('ProfileList - New sort direction:', direction);
+    console.log('ProfileList - Current sortColumn:', sortColumn);
+    console.log('ProfileList - Current sortDirection:', sortDirection);
+    
+    // Ensure 'niche.name' is correctly handled
+    const adjustedColumn = column === 'niche.name' ? 'niche__name' : column;
+    
+    console.log('ProfileList - Fetching profiles with:', { sortColumn: adjustedColumn, sortDirection: direction });
+    fetchProfiles({ sortColumn: adjustedColumn, sortDirection: direction });
+  };
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Never';
@@ -31,6 +60,7 @@ const ProfileList = ({ nicheId }) => {
     {
       key: 'username',
       title: 'Username',
+      sortable: true,
       render: (profile) => (
         <div className="profile-list__username">
           <a 
@@ -44,8 +74,18 @@ const ProfileList = ({ nicheId }) => {
       )
     },
     {
+      key: 'niche.name',
+      title: 'Niche',
+      sortable: true,
+      render: (profile) => {
+        console.log('Rendering niche for profile:', profile);
+        return profile.niche ? profile.niche.name : '-';
+      }
+    },
+    {
       key: 'status',
       title: 'Status',
+      sortable: true,
       render: (profile) => (
         <div className="profile-list__status">
           <span 
@@ -79,17 +119,6 @@ const ProfileList = ({ nicheId }) => {
       render: (profile) => formatDate(profile.last_story_detected)
     },
     {
-      key: 'stats',
-      title: 'Story Detection Rate',
-      sortable: true,
-      render: (profile) => {
-        const rate = profile.total_checks 
-          ? ((profile.total_detections / profile.total_checks) * 100).toFixed(1)
-          : 0;
-        return `${rate}%`;
-      }
-    },
-    {
       key: 'total_checks',
       title: 'Total Checks',
       sortable: true,
@@ -103,10 +132,16 @@ const ProfileList = ({ nicheId }) => {
     }
   ];
 
+  const totalPages = Math.ceil(totalProfiles / pageSize);
+
   return (
     <div className="profile-list">
       {loading && <div className="profile-list__loading">Loading...</div>}
       {error && <div className="profile-list__error">{error}</div>}
+
+      <div className="profile-list__info">
+        Total Profiles: {totalProfiles}
+      </div>
 
       {selectedProfileIds.length > 0 && (
         <div className="profile-list__selection-info">
@@ -114,20 +149,29 @@ const ProfileList = ({ nicheId }) => {
         </div>
       )}
 
-      {!profiles.length ? (
+      {profiles.length > 0 ? (
+        <>
+          <Table
+            data={profiles}
+            columns={columns}
+            selectable={true}
+            selectedRows={selectedProfileIds}
+            onSelectionChange={setSelectedProfiles}
+            onSort={handleSort}
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+          />
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+          />
+        </>
+      ) : (
         <div className="profile-list__empty">
           <p>No profiles found</p>
           <p>Import profiles using the file importer above</p>
         </div>
-      ) : (
-        <Table
-          data={profiles}
-          columns={columns}
-          pageSize={100}
-          selectable={true}
-          selectedRows={selectedProfileIds}
-          onSelectionChange={setSelectedProfiles}
-        />
       )}
     </div>
   );

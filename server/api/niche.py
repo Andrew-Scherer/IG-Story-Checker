@@ -28,6 +28,7 @@ def list_niches():
         current_app.logger.info("4. Converting niches to dict...")
         result = [niche.to_dict() for niche in niches]
         current_app.logger.info("5. Successfully converted niches")
+        current_app.logger.info(f"Niche details: {result}")
         
         return jsonify(result)
     except Exception as e:

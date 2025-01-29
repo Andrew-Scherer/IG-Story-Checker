@@ -1,123 +1,94 @@
-import React from 'react';
-import Button from './Button';
+import React, { useState } from 'react';
 import './Pagination.scss';
 
-const Pagination = ({
-  currentPage,
-  totalPages,
-  pageSize,
-  totalItems,
-  onPageChange,
-  onPageSizeChange,
-  pageSizeOptions = [10, 25, 50, 100],
-  showPageSizeSelector = true,
-  showItemCount = true
-}) => {
-  const handlePageChange = (page) => {
+const Pagination = ({ currentPage, totalPages, onPageChange }) => {
+  const [inputPage, setInputPage] = useState('');
+
+  const handlePageClick = (page) => {
     if (page >= 1 && page <= totalPages) {
       onPageChange(page);
     }
   };
 
-  const handlePageSizeChange = (e) => {
-    const newSize = parseInt(e.target.value, 10);
-    onPageSizeChange(newSize);
+  const handleInputChange = (e) => {
+    setInputPage(e.target.value);
   };
 
-  const getPageNumbers = () => {
+  const handleGoToPage = () => {
+    const page = parseInt(inputPage);
+    if (page >= 1 && page <= totalPages) {
+      onPageChange(page);
+      setInputPage('');
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleGoToPage();
+    }
+  };
+
+  const renderPageNumbers = () => {
     const pages = [];
-    const maxVisiblePages = 5;
-    let start = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-    let end = Math.min(totalPages, start + maxVisiblePages - 1);
+    let start = Math.max(1, currentPage - 4);
+    let end = Math.min(totalPages, start + 8);
 
-    // Adjust start if we're near the end
-    if (end === totalPages) {
-      start = Math.max(1, end - maxVisiblePages + 1);
+    if (end - start < 8) {
+      start = Math.max(1, end - 8);
     }
 
-    // Add first page
-    if (start > 1) {
-      pages.push(1);
-      if (start > 2) pages.push('...');
-    }
-
-    // Add middle pages
     for (let i = start; i <= end; i++) {
-      pages.push(i);
+      pages.push(
+        <button
+          key={i}
+          className={`pagination__number ${currentPage === i ? 'pagination__number--active' : ''}`}
+          onClick={() => handlePageClick(i)}
+        >
+          {i}
+        </button>
+      );
     }
-
-    // Add last page
-    if (end < totalPages) {
-      if (end < totalPages - 1) pages.push('...');
-      pages.push(totalPages);
-    }
-
     return pages;
   };
 
-  const startItem = (currentPage - 1) * pageSize + 1;
-  const endItem = Math.min(currentPage * pageSize, totalItems);
-
   return (
     <div className="pagination">
-      <div className="pagination__controls">
-        <Button
-          variant="secondary"
-          size="small"
-          onClick={() => handlePageChange(1)}
-          disabled={currentPage === 1}
+      <button
+        className="pagination__arrow"
+        onClick={() => handlePageClick(currentPage - 1)}
+        disabled={currentPage === 1}
+      >
+        &lt;
+      </button>
+      {renderPageNumbers()}
+      <button
+        className="pagination__arrow"
+        onClick={() => handlePageClick(currentPage + 1)}
+        disabled={currentPage === totalPages}
+      >
+        &gt;
+      </button>
+      <div className="pagination__goto">
+        <input
+          type="number"
+          min="1"
+          max={totalPages}
+          value={inputPage}
+          onChange={handleInputChange}
+          onKeyPress={handleKeyPress}
+          placeholder="Page"
+          className="pagination__input"
+        />
+        <button
+          className="pagination__go-button"
+          onClick={handleGoToPage}
+          disabled={!inputPage}
         >
-          First
-        </Button>
-        <Button
-          variant="secondary"
-          size="small"
-          onClick={() => handlePageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-        >
-          Previous
-        </Button>
-
-        <div className="pagination__pages">
-          {getPageNumbers().map((page, index) => (
-            <React.Fragment key={index}>
-              {page === '...' ? (
-                <span className="pagination__ellipsis">...</span>
-              ) : (
-                <Button
-                  variant={currentPage === page ? 'primary' : 'secondary'}
-                  size="small"
-                  onClick={() => handlePageChange(page)}
-                >
-                  {page}
-                </Button>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-
-        <Button
-          variant="secondary"
-          size="small"
-          onClick={() => handlePageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-        >
-          Next
-        </Button>
-        <Button
-          variant="secondary"
-          size="small"
-          onClick={() => handlePageChange(totalPages)}
-          disabled={currentPage === totalPages}
-        >
-          Last
-        </Button>
+          Go
+        </button>
       </div>
+    </div>
+  );
+};
 
-      <div className="pagination__info">
-        {showItemCount && (
-          <span className="pagination__count">
-            Showing {startItem}-{endItem} of {totalItems} items
-          </span>
-        )}
-
+export default Pagination;
