@@ -23,11 +23,39 @@ const FileImporter = ({
         throw new Error('Please upload a text file containing Instagram profile URLs');
       }
 
-      await onImport(file);
+      const result = await onImport(file);
+      
+      // Handle import errors
+      if (result?.errors?.length > 0) {
+        const nicheErrors = result.errors.filter(e => e.error.includes('niche'));
+        const duplicateErrors = result.errors.filter(e => e.error.includes('exists'));
+        const formatErrors = result.errors.filter(e => e.error.includes('format'));
+        
+        const errorMessages = [];
+        
+        if (nicheErrors.length > 0) {
+          errorMessages.push(`Niche validation failed for ${nicheErrors.length} profiles`);
+        }
+        if (duplicateErrors.length > 0) {
+          errorMessages.push(`${duplicateErrors.length} profiles already exist`);
+        }
+        if (formatErrors.length > 0) {
+          errorMessages.push(`${formatErrors.length} profiles had invalid format`);
+        }
+        
+        if (result.created.length > 0) {
+          errorMessages.unshift(`Successfully imported ${result.created.length} profiles.`);
+        }
+        
+        setError(errorMessages.join('\n'));
+      }
     } catch (err) {
-      setError(err.message);
+      const errorMessage = err.response?.data?.error || err.message;
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
+      // Reset the file input
+      e.target.value = '';
     }
   };
 
@@ -46,7 +74,20 @@ const FileImporter = ({
             data-testid="file-input"
           />
         </label>
-        {error && <div className="file-importer__error">{error}</div>}
+        {error && (
+          <div className="file-importer__error">
+            {error.split('\n').map((line, i) => (
+              <div 
+                key={i} 
+                className={`file-importer__error-line ${
+                  line.includes('Successfully') ? 'file-importer__error-line--success' : ''
+                }`}
+              >
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
         {disabled && <div className="file-importer__message">{disabledMessage}</div>}
       </div>
     </div>

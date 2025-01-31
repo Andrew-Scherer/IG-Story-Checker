@@ -5,38 +5,10 @@ Handles proxy management endpoints
 
 from flask import Blueprint, request, jsonify, current_app
 from models import db, Proxy, Session, ProxyErrorLog
-from sqlalchemy import exc
+from sqlalchemy import exc, desc
 
 # Create blueprint
 proxy_bp = Blueprint('proxy', __name__)
-
-@proxy_bp.route('/<proxy_id>/error_logs', methods=['GET'])
-def get_proxy_error_logs(proxy_id):
-    """Get error logs for a specific proxy"""
-    try:
-        proxy = db.session.get(Proxy, proxy_id)
-        if not proxy:
-            return create_error_response(
-                'not_found',
-                f'Proxy {proxy_id} not found',
-                {'proxy_id': proxy_id},
-                404
-            )
-
-        # Fetch error logs, you can implement pagination if needed
-        error_logs = proxy.error_logs.limit(100).all()  # Limit to latest 100 logs
-        error_logs_data = [log.to_dict() for log in error_logs]
-
-        return jsonify(error_logs_data), 200
-
-    except Exception as e:
-        current_app.logger.exception(f"Error fetching error logs for proxy {proxy_id}: {e}")
-        return create_error_response(
-            'internal_server_error',
-            'An unexpected error occurred while fetching error logs.',
-            {'error': str(e)},
-            500
-        )
 
 def log_step(step: str, data: dict = None) -> None:
     """Log a step in the proxy management process"""
@@ -56,6 +28,55 @@ def create_error_response(error_type: str, message: str, details: dict = None, s
     current_app.logger.error(f"[PROXY API] Error: {error_type} - {message} - {details}")
     return jsonify(response), status_code
 
+@proxy_bp.route('/<proxy_id>/error-logs', methods=['GET'])
+def get_proxy_error_logs(proxy_id):
+    """Get error logs for a specific proxy with pagination"""
+    proxy = db.session.get(Proxy, proxy_id)
+    if not proxy:
+        return jsonify({'message': 'Proxy not found'}), 404
+
+    # Get pagination parameters
+    limit = request.args.get('limit', 20, type=int)
+    offset = request.args.get('offset', 0, type=int)
+
+    # Validate pagination parameters
+    if limit < 1 or limit > 100:
+        return jsonify({
+            'message': 'Invalid limit parameter',
+            'details': {
+                'field': 'limit',
+                'valid_range': '1-100'
+            }
+        }), 400
+
+    if offset < 0:
+        return jsonify({
+            'message': 'Invalid offset parameter',
+            'details': {
+                'field': 'offset',
+                'valid_range': '>=0'
+            }
+        }), 400
+
+    # Get total count
+    total_logs = proxy.error_logs.count()
+
+    # Fetch paginated error logs ordered by timestamp descending
+    error_logs = (proxy.error_logs
+                 .order_by(desc(ProxyErrorLog.timestamp))
+                 .offset(offset)
+                 .limit(limit)
+                 .all())
+
+    error_logs_data = [log.to_dict() for log in error_logs]
+
+    return jsonify({
+        'logs': error_logs_data,
+        'total': total_logs,
+        'limit': limit,
+        'offset': offset
+    }), 200
+
 @proxy_bp.route('', methods=['GET'])
 def list_proxies():
     """Get all proxies"""
@@ -63,14 +84,7 @@ def list_proxies():
     try:
         proxies = Proxy.query.all()
         log_step(f"Found {len(proxies)} proxies")
-        return jsonify([{
-            **p.to_dict(),
-            'sessions': [{
-                'id': s.id,
-                'session': s.session,
-                'status': s.status
-            } for s in p.sessions]
-        } for p in proxies])
+        return jsonify([p.to_dict() for p in proxies])
     except Exception as e:
         return create_error_response(
             'database_error',
@@ -148,14 +162,7 @@ def create_proxy():
         log_step("Transaction committed successfully")
         
         # Return proxy with session included
-        result = {
-            **proxy.to_dict(),
-            'sessions': [{
-                'id': session.id,
-                'session': session.session,
-                'status': session.status
-            }]
-        }
+        result = proxy.to_dict()
         log_step("Returning successful response")
         return jsonify(result), 201
 

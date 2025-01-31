@@ -11,9 +11,9 @@ def test_list_niches(client, db_session):
     """Test GET /api/niches"""
     # Create test niches
     niches = [
-        {'name': 'Fashion', 'display_order': 0},
-        {'name': 'Travel', 'display_order': 1},
-        {'name': 'Food', 'display_order': 2}
+        {'name': 'Fashion', 'order': 0},
+        {'name': 'Travel', 'order': 1},
+        {'name': 'Food', 'order': 2}
     ]
     
     for niche in niches:
@@ -33,8 +33,8 @@ def test_list_niches(client, db_session):
     # Verify response structure
     niche = data[0]
     assert set(niche.keys()) == {
-        'id', 'name', 'display_order', 'daily_story_target',
-        'created_at', 'updated_at'
+        'id', 'name', 'order', 'daily_story_target',
+        'profile_count', 'created_at', 'updated_at'
     }
 
 def test_create_niche(client, db_session):
@@ -42,13 +42,13 @@ def test_create_niche(client, db_session):
     # Test valid creation
     response = client.post('/api/niches', json={
         'name': 'Fitness',
-        'display_order': 1
+        'order': 1
     })
     assert response.status_code == 201
     
     data = json.loads(response.data)
     assert data['name'] == 'Fitness'
-    assert data['display_order'] == 1
+    assert data['order'] == 1
     assert 'id' in data
     
     # Test duplicate name
@@ -102,13 +102,13 @@ def test_update_niche(client, db_session):
     # Update niche
     response = client.put(f'/api/niches/{niche_id}', json={
         'name': 'Digital Art',
-        'display_order': 5
+        'order': 5
     })
     assert response.status_code == 200
     
     data = json.loads(response.data)
     assert data['name'] == 'Digital Art'
-    assert data['display_order'] == 5
+    assert data['order'] == 5
     
     # Test duplicate name
     client.post('/api/niches', json={'name': 'Photography'})

@@ -7,18 +7,32 @@ import './ChangeNiche.scss';
 
 const ChangeNiche = ({ isOpen, onClose }) => {
   const { niches } = useNicheStore();
-  const { updateProfile, getFilteredProfiles } = useProfileStore();
+  const { updateProfile, getFilteredProfiles, fetchProfiles } = useProfileStore();
   const [selectedNicheId, setSelectedNicheId] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const handleSave = async () => {
     if (!selectedNicheId) return;
 
     const profiles = getFilteredProfiles();
-    for (const profile of profiles) {
-      await updateProfile(profile.id, { niche_id: selectedNicheId });
-    }
+    setIsUpdating(true);
+    setProgress(0);
 
-    onClose();
+    try {
+      for (let i = 0; i < profiles.length; i++) {
+        await updateProfile(profiles[i].id, { niche_id: selectedNicheId });
+        setProgress(Math.round(((i + 1) / profiles.length) * 100));
+      }
+
+      // Refresh the profile list to show updated niches
+      await fetchProfiles();
+      setIsUpdating(false);
+      onClose();
+    } catch (error) {
+      console.error('Error updating niches:', error);
+      setIsUpdating(false);
+    }
   };
 
   return (
@@ -41,9 +55,16 @@ const ChangeNiche = ({ isOpen, onClose }) => {
             </li>
           ))}
         </ul>
+        {isUpdating && (
+          <div className="change-niche__progress">
+            <div className="change-niche__progress-bar" style={{ width: `${progress}%` }}>
+              {progress}%
+            </div>
+          </div>
+        )}
         <div className="change-niche__actions">
-          <Button onClick={handleSave} disabled={!selectedNicheId}>
-            Save
+          <Button onClick={handleSave} disabled={!selectedNicheId || isUpdating}>
+            {isUpdating ? 'Updating...' : 'Save'}
           </Button>
         </div>
       </div>

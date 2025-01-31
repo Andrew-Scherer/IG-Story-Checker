@@ -1,6 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import useProfileStore from '../../stores/profileStore';
 import useNicheStore from '../../stores/nicheStore';
+import { useFilterStore } from '../../stores/filterStore';
+import { usePaginationStore } from '../../stores/paginationStore';
+import { useSortStore } from '../../stores/sortStore';
 import Table from '../common/Table';
 import Button from '../common/Button';
 import Modal from '../common/Modal';
@@ -11,35 +14,28 @@ import './MasterList.scss';
 
 function MasterList() {
   const {
-    updateProfile,
-    deleteProfiles,
-    getFilteredProfiles,
-    setFilters,
-    filters,
+    profiles,
     loading,
     error,
+    updateProfile,
+    deleteProfiles,
     refreshStories,
     fetchProfiles
   } = useProfileStore();
 
+  const { filters, setFilter } = useFilterStore();
   const { niches } = useNicheStore();
+  const { currentPage, pageSize, setPage } = usePaginationStore();
+  const { sortColumn, sortDirection } = useSortStore();
 
   const [selectedIds, setSelectedIds] = useState([]);
   const [showBulkActions, setShowBulkActions] = useState(false);
-  const [showProfileStats, setShowProfileStats] = useState(null);
-  const [showHistory, setShowHistory] = useState(null);
   const [showChangeNiche, setShowChangeNiche] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [sortColumn, setSortColumn] = useState(null);
-  const [sortDirection, setSortDirection] = useState('asc');
-  const pageSize = 1000;
 
-  // Apply initial filters
+  // Fetch profiles when filters, pagination, or sorting changes
   useEffect(() => {
-    setFilters({ search: searchTerm });
-    setCurrentPage(1);
-  }, [searchTerm, setFilters]);
+    fetchProfiles();
+  }, [filters, currentPage, pageSize, sortColumn, sortDirection, fetchProfiles]);
 
   const handleBulkAction = async (action) => {
     if (!selectedIds.length) return;
@@ -75,13 +71,6 @@ function MasterList() {
     return new Date(dateString).toLocaleString();
   };
 
-  const formatDuration = (minutes) => {
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    return `${hours}h ${remainingMinutes}m`;
-  };
-
   const columns = [
     {
       key: 'username',
@@ -103,10 +92,6 @@ function MasterList() {
       key: 'niche',
       title: 'Niche',
       sortable: true,
-      sortValue: (profile) => {
-        const niche = niches.find(n => n.id === profile.niche_id);
-        return niche?.name || '';
-      },
       render: (profile) => {
         const niche = niches.find(n => n.id === profile.niche_id);
         return niche?.name || '-';
@@ -140,14 +125,9 @@ function MasterList() {
       render: (profile) => formatDate(profile.last_detected)
     },
     {
-      key: 'stats',
+      key: 'detection_rate',
       title: 'Story Detection Rate',
       sortable: true,
-      sortValue: (profile) => {
-        return profile.total_checks
-          ? (profile.total_detections / profile.total_checks) * 100
-          : 0;
-      },
       render: (profile) => {
         const rate = profile.total_checks
           ? ((profile.total_detections / profile.total_checks) * 100).toFixed(1)
@@ -157,28 +137,6 @@ function MasterList() {
     }
   ];
 
-  const filteredProfiles = useMemo(() => {
-    return getFilteredProfiles();
-  }, [getFilteredProfiles]);
-
-  const paginatedProfiles = useMemo(() => {
-    const startIndex = (currentPage - 1) * pageSize;
-    return filteredProfiles.slice(startIndex, startIndex + pageSize);
-  }, [filteredProfiles, currentPage, pageSize]);
-
-  const totalPages = Math.ceil(filteredProfiles.length / pageSize);
-
-  const handlePageChange = (page) => {
-    setCurrentPage(page);
-  };
-
-  const handleSort = (column, direction) => {
-    setSortColumn(column);
-    setSortDirection(direction);
-    const sortColumn = column === 'niche' ? 'niche__name' : column;
-    fetchProfiles({ sortColumn, sortDirection: direction });
-  };
-
   return (
     <div className="master-list">
       <div className="master-list__header">
@@ -186,13 +144,17 @@ function MasterList() {
           <Input
             type="text"
             placeholder="Search profiles..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ width: '200px' }} // Reduce width of search bar
+            value={filters.search}
+            onChange={(e) => setFilter('search', e.target.value)}
+            style={{ width: '200px' }}
           />
           <select
             value={filters.nicheId || ''}
-            onChange={(e) => setFilters({ nicheId: e.target.value ? Number(e.target.value) : null })}
+            onChange={(e) => {
+              const nicheId = e.target.value || null;
+              setFilter('nicheId', nicheId);
+              setPage(1); // Reset to first page when changing niche
+            }}
           >
             <option value="">All Niches</option>
             {niches.map(niche => (
@@ -202,8 +164,11 @@ function MasterList() {
             ))}
           </select>
           <select
-            value={filters.status}
-            onChange={(e) => setFilters({ status: e.target.value })}
+            value={filters.status || ''}
+            onChange={(e) => {
+              setFilter('status', e.target.value || null);
+              setPage(1); // Reset to first page when changing status
+            }}
           >
             <option value="">All Status</option>
             <option value="active">Active</option>
@@ -229,7 +194,7 @@ function MasterList() {
           </Button>
           <Button
             onClick={() => {
-              const activeProfiles = filteredProfiles.filter(p => p.active_story);
+              const activeProfiles = profiles.filter(p => p.active_story);
               setSelectedIds(activeProfiles.map(p => p.id));
             }}
           >
@@ -237,9 +202,7 @@ function MasterList() {
           </Button>
 
           {selectedIds.length > 0 && (
-            <Button
-              onClick={() => setShowBulkActions(true)}
-            >
+            <Button onClick={() => setShowBulkActions(true)}>
               Bulk Actions ({selectedIds.length})
             </Button>
           )}
@@ -250,21 +213,14 @@ function MasterList() {
       {error && <div className="master-list__error">{error}</div>}
 
       <Table
-        data={paginatedProfiles}
+        data={profiles}
         columns={columns}
         selectable={true}
         selectedRows={selectedIds}
         onSelectionChange={setSelectedIds}
-        onSort={handleSort}
-        sortColumn={sortColumn}
-        sortDirection={sortDirection}
       />
 
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={handlePageChange}
-      />
+      <Pagination />
 
       {/* Bulk Actions Modal */}
       {showBulkActions && (
@@ -286,77 +242,6 @@ function MasterList() {
             >
               Delete Selected
             </Button>
-          </div>
-        </Modal>
-      )}
-
-      {/* Profile Stats Modal */}
-      {showProfileStats && (
-        <Modal
-          title={`Statistics for ${showProfileStats.username}`}
-          isOpen={!!showProfileStats}
-          onClose={() => setShowProfileStats(null)}
-        >
-          <div className="master-list__stats">
-            <div className="master-list__stat">
-              <label>Total Checks:</label>
-              <span>{showProfileStats.total_checks || 0}</span>
-            </div>
-            <div className="master-list__stat">
-              <label>Stories Found:</label>
-              <span>{showProfileStats.total_detections || 0}</span>
-            </div>
-            <div className="master-list__stat">
-              <label>Story Detection Rate:</label>
-              <span>
-                {showProfileStats.total_checks
-                  ? ((showProfileStats.total_detections / showProfileStats.total_checks) * 100).toFixed(1)
-                  : 0}%
-              </span>
-            </div>
-            <div className="master-list__stat">
-              <label>Last Check:</label>
-              <span>{formatDate(showProfileStats.last_checked)}</span>
-            </div>
-            <div className="master-list__stat">
-              <label>Last Story:</label>
-              <span>{formatDate(showProfileStats.last_detected)}</span>
-            </div>
-            <div className="master-list__stat">
-              <label>Status:</label>
-              <span>{showProfileStats.status}</span>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* Profile History Modal */}
-      {showHistory && (
-        <Modal
-          title={`Check History for ${showHistory.username}`}
-          isOpen={!!showHistory}
-          onClose={() => setShowHistory(null)}
-        >
-          <div className="master-list__history">
-            {showHistory.checkHistory?.length ? (
-              showHistory.checkHistory.map((check, index) => (
-                <div key={index} className="master-list__history-item">
-                  <div className="master-list__history-time">
-                    {formatDate(check.timestamp)}
-                  </div>
-                  <div className={`master-list__history-status master-list__history-status--${check.success ? 'success' : 'failure'}`}>
-                    {check.success ? 'Story Found' : 'No Story'}
-                  </div>
-                  <div className="master-list__history-duration">
-                    {formatDuration(check.duration)}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="master-list__empty">
-                No check history available
-              </div>
-            )}
           </div>
         </Modal>
       )}

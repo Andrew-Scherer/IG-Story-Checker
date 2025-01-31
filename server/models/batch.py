@@ -16,13 +16,18 @@ class Batch(BaseModel):
     Manages the state and statistics of a batch story check operation.
     Each batch is associated with a niche and contains multiple profiles
     to be processed.
+
+    Status values:
+    - queued: Initial state, waiting to be processed
+    - in_progress: Currently being processed
+    - paused: Processing temporarily stopped, can be resumed
+    - done: Processing completed
     """
     __tablename__ = 'batches'
 
     # Primary fields
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     niche_id = db.Column(db.String(36), db.ForeignKey('niches.id'), nullable=False)
-    # Status can be: queued, in_progress, done
     status = db.Column(db.String(20), default='queued', nullable=False)
     total_profiles = db.Column(db.Integer, nullable=False)
     completed_profiles = db.Column(db.Integer, default=0)
@@ -31,11 +36,11 @@ class Batch(BaseModel):
     queue_position = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = db.Column(db.DateTime(timezone=True), onupdate=lambda: datetime.now(UTC))
-    completed_at = db.Column(db.DateTime(timezone=True), nullable=True)  # New field added
+    completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     # Relationships
     niche = db.relationship('Niche', backref=db.backref('batches', lazy=True))
-    profiles = db.relationship('BatchProfile', back_populates='batch', lazy=True, cascade='all, delete-orphan')
+    profiles = db.relationship('BatchProfile', back_populates='batch', lazy='joined', cascade='all, delete-orphan')
     story_results = db.relationship('StoryResult', back_populates='batch', cascade='all, delete-orphan')
     logs = db.relationship('BatchLog', back_populates='batch', lazy=True, cascade='all, delete-orphan')
 
@@ -59,6 +64,22 @@ class Batch(BaseModel):
         if self.total_profiles == 0:
             return 0.0
         return (self.completed_profiles / self.total_profiles) * 100.0
+
+    def preserve_state(self):
+        """Calculate and preserve batch state"""
+        # Calculate state from profiles
+        self.completed_profiles = len([bp for bp in self.profiles if bp.status in ['completed', 'failed']])
+        self.successful_checks = len([bp for bp in self.profiles if bp.status == 'completed' and bp.has_story])
+        self.failed_checks = len([bp for bp in self.profiles if bp.status in ['failed']])
+        
+        # Save state to database
+        db.session.commit()
+        
+        # Log state preservation
+        current_app.logger.info(
+            f'Preserved batch state: {self.completed_profiles} completed, '
+            f'{self.successful_checks} successful, {self.failed_checks} failed'
+        )
 
     def to_dict(self):
         """Convert batch to dictionary"""
@@ -92,7 +113,7 @@ class Batch(BaseModel):
                 'profiles_with_stories': profiles_with_stories,
                 'created_at': self.created_at.isoformat() if self.created_at else None,
                 'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-                'completed_at': self.completed_at.isoformat() if self.completed_at else None  # Include in API response
+                'completed_at': self.completed_at.isoformat() if self.completed_at else None
             }
         except Exception as e:
             current_app.logger.error(f"Error in batch.to_dict(): {str(e)}")
@@ -135,7 +156,7 @@ class BatchProfile(BaseModel):
     batch_id = db.Column(db.String(36), db.ForeignKey('batches.id'), nullable=False)
     profile_id = db.Column(db.String(36), db.ForeignKey('profiles.id'), nullable=False)
     proxy_id = db.Column(db.String(36), db.ForeignKey('proxies.id'), nullable=True)
-    session_id = db.Column(db.Integer, db.ForeignKey('sessions.id'), nullable=True)
+    session_id = db.Column(db.String(36), db.ForeignKey('sessions.id'), nullable=True)
     
     # Processing state
     status = db.Column(db.String(20), default='pending', nullable=False)

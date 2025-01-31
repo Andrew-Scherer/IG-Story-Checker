@@ -179,3 +179,72 @@ def test_profile_creation_validation(client, db_session):
     print(f"Error message: {response.data}")
     assert response.status_code == 400
     assert b'Invalid status' in response.data
+
+def test_profile_file_import_with_variations(client, db_session):
+    """Test importing profiles from file with various username variations"""
+    print("\n=== Testing profile file import with variations ===")
+    
+    # Create a test niche
+    niche_response = client.post('/api/niches', json={'name': 'Test Import Niche'})
+    assert niche_response.status_code == 201
+    niche_id = json.loads(niche_response.data)['id']
+    
+    # Create test file content with username variations
+    test_profiles = [
+        'test_user_1',
+        'test.user.1',  # Similar to test_user_1
+        'Test_User_1',  # Case variation
+        'https://instagram.com/test_user_1',  # URL format
+        'unique_user_1',
+        'profile_123',
+        'profile.123'   # Similar to profile_123
+    ]
+    
+    # Convert profiles to file-like object
+    from io import BytesIO
+    file_content = '\n'.join(test_profiles).encode('utf-8')
+    file_obj = BytesIO(file_content)
+    file_obj.name = 'test_profiles.txt'
+    
+    # Import profiles
+    response = client.post(
+        f'/api/profiles/niches/{niche_id}/import',
+        data={'file': (file_obj, 'test_profiles.txt')},
+        content_type='multipart/form-data'
+    )
+    
+    print(f"Import response status: {response.status_code}")
+    print(f"Import response data: {response.data}")
+    
+    assert response.status_code in [201, 207]  # 207 for partial success
+    
+    response_data = json.loads(response.data)
+    print("\nCreated profiles:", len(response_data['created']))
+    print("Errors:", len(response_data['errors']))
+    
+    # Analyze duplicate detection
+    duplicate_errors = [
+        error for error in response_data['errors']
+        if error['error'] == 'Profile already exists'
+    ]
+    print("\nDuplicate errors:", len(duplicate_errors))
+    for error in duplicate_errors:
+        print(f"Duplicate detected: {error['line']}")
+    
+    # Verify profiles in database
+    from models.profile import Profile
+    db_profiles = db_session.query(Profile).all()
+    print("\nProfiles in database:", len(db_profiles))
+    for profile in db_profiles:
+        print(f"- {profile.username}")
+    
+    # Test retrieving profiles through API
+    list_response = client.get('/api/profiles')
+    assert list_response.status_code == 200
+    list_data = json.loads(list_response.data)
+    print("\nProfiles returned by API:", len(list_data['profiles']))
+    
+    # Verify the number of unique usernames matches the number of profiles
+    unique_usernames = {profile['username'].lower() for profile in list_data['profiles']}
+    print(f"\nUnique usernames in database: {len(unique_usernames)}")
+    print("Usernames:", unique_usernames)

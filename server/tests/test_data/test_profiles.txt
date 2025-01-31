@@ -1,0 +1,36 @@
+# Original usernames
+test_user_1
+test_user_2
+test_user_3
+
+# Similar usernames with slight variations
+test.user.1
+test_user.1
+test.user_1
+
+# Case variations
+Test_User_1
+TEST_USER_1
+test_USER_1
+
+# URL format variations
+https://instagram.com/test_user_1
+http://instagram.com/test_user_2
+instagram.com/test_user_3
+www.instagram.com/test_user_1
+
+# Completely different usernames
+unique_user_1
+unique_user_2
+unique_user_3
+
+# Valid but similar usernames
+profile_123
+profile.123
+profile_124
+profile.124
+
+# Special characters (valid according to Instagram rules)
+user._test
+user_.test
+user.test_

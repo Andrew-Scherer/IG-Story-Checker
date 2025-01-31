@@ -18,16 +18,51 @@ class ApiError extends Error {
 const axiosInstance = axios.create({
   baseURL: API_URL,
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  },
+  withCredentials: true,
+  timeout: 10000, // Reduced timeout to fail faster
+  validateStatus: status => {
+    return status >= 200 && status < 300; // Only resolve for 2xx status codes
+  },
+  // Retry configuration
+  retry: 3,
+  retryDelay: (retryCount) => {
+    return retryCount * 1000; // Time between retries (1s, 2s, 3s)
   }
 });
 
+// Add retry interceptor
+axiosInstance.interceptors.response.use(undefined, async (err) => {
+  const { config } = err;
+  if (!config || !config.retry) {
+    return Promise.reject(err);
+  }
+  
+  config.retryCount = config.retryCount || 0;
+  
+  if (config.retryCount >= config.retry) {
+    return Promise.reject(err);
+  }
+  
+  config.retryCount += 1;
+  console.log(`Retrying request (${config.retryCount}/${config.retry})`);
+  
+  const delayMs = config.retryDelay(config.retryCount);
+  await new Promise(resolve => setTimeout(resolve, delayMs));
+  
+  return axiosInstance(config);
+});
+
+// Request interceptor for debugging
 axiosInstance.interceptors.request.use(
   config => {
     console.log(`=== API Request ===`);
     console.log(`${config.method.toUpperCase()} ${config.url}`);
     console.log('Request headers:', config.headers);
     console.log('Request data:', config.data);
+    console.log('Request params:', config.params);
     return config;
   },
   error => {
@@ -36,6 +71,7 @@ axiosInstance.interceptors.request.use(
   }
 );
 
+// Response interceptor for debugging
 axiosInstance.interceptors.response.use(
   response => {
     console.log(`=== API Response ===`);
@@ -50,7 +86,6 @@ axiosInstance.interceptors.response.use(
       console.error('Response status:', error.response.status);
       console.error('Response headers:', error.response.headers);
       console.error('Response data:', error.response.data);
-      console.error('Full error object:', error);
       throw ApiError.fromResponse(error.response);
     }
     console.error('Network error details:', error);
@@ -62,16 +97,7 @@ export const niches = {
   list: () => axiosInstance.get('/niches').then(res => res.data),
   create: (data) => axiosInstance.post('/niches', data).then(res => res.data),
   update: (id, data) => axiosInstance.put(`/niches/${id}`, data).then(res => res.data),
-  delete: (id) => axiosInstance.delete(`/niches/${id}`).then(res => res.data),
-  import: (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return axiosInstance.post('/niches/import', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    }).then(res => res.data);
-  }
+  delete: (id) => axiosInstance.delete(`/niches/${id}`).then(res => res.data)
 };
 
 export const profiles = {
@@ -91,52 +117,22 @@ export const profiles = {
   refreshStories: () => axiosInstance.post('/profiles/refresh-stories').then(res => res.data)
 };
 
-// Add more detailed error logging
-axiosInstance.interceptors.response.use(
-  response => {
-    console.log(`=== API Response ===`);
-    console.log(`Status: ${response.status}`);
-    console.log('Response headers:', response.headers);
-    console.log('Response data:', response.data);
-    return response;
-  },
-  error => {
-    console.error('!!! API Error !!!');
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response headers:', error.response.headers);
-      console.error('Response data:', error.response.data);
-    } else if (error.request) {
-      console.error('No response received');
-      console.error('Request details:', error.request);
-    } else {
-      console.error('Error setting up request:', error.message);
-    }
-    console.error('Error config:', error.config);
-    console.error('Full error object:', error);
-    throw error;
-  }
-);
-
 export const batches = {
   list: () => axiosInstance.get('/batches').then(res => res.data),
   create: (data) => axiosInstance.post('/batches', data).then(res => res.data),
-  start: (data) => {
-    console.log('Sending start request with data:', data);
-    return axiosInstance.post('/batches/start', data)
-      .then(res => {
-        console.log('Received response from start request:', res.data);
-        return res.data;
-      })
-      .catch(error => {
-        console.error('Error in start request:', error);
-        throw error;
-      });
-  },
+  start: (data) => axiosInstance.post('/batches/start', data).then(res => res.data),
   stop: (data) => axiosInstance.post('/batches/stop', data).then(res => res.data),
+  resume: (data) => axiosInstance.post('/batches/resume', data).then(res => res.data),
   delete: (data) => axiosInstance.delete('/batches', { data: { batch_ids: data.batch_ids } }).then(res => res.data),
   getLogs: (batchId, startTime, endTime, limit, offset) => 
-    axiosInstance.get(`/batches/${batchId}/logs`, { params: { start_time: startTime, end_time: endTime, limit, offset } }).then(res => res.data)
+    axiosInstance.get(`/batches/${batchId}/logs`, { 
+      params: { 
+        start_time: startTime, 
+        end_time: endTime, 
+        limit, 
+        offset 
+      } 
+    }).then(res => res.data)
 };
 
 export const settings = {
@@ -149,12 +145,8 @@ export const proxies = {
   create: (data) => axiosInstance.post('/proxies', data).then(res => res.data),
   delete: (id) => axiosInstance.delete(`/proxies/${id}`).then(res => res.data),
   updateStatus: (id, data) => axiosInstance.patch(`/proxies/${id}/status`, data).then(res => res.data),
-  addSession: (proxyId, data) => axiosInstance.post(`/proxies/${proxyId}/sessions`, data).then(res => res.data),
-  updateSession: (proxyId, sessionId, data) => axiosInstance.put(`/proxies/${proxyId}/sessions/${sessionId}`, data).then(res => res.data),
-  removeSession: (proxyId, sessionId) => axiosInstance.delete(`/proxies/${proxyId}/sessions/${sessionId}`).then(res => res.data),
-  test: (id) => axiosInstance.post(`/proxies/${id}/test`).then(res => res.data),
-  updateHealth: (id, data) => axiosInstance.post(`/proxies/${id}/health`, data).then(res => res.data),
-  updateLimit: (id, data) => axiosInstance.patch(`/proxies/${id}/limit`, data).then(res => res.data)
+  getErrorLogs: (proxyId, limit = 20, offset = 0) => 
+    axiosInstance.get(`/proxies/${proxyId}/error-logs`, { params: { limit, offset } }).then(res => res.data)
 };
 
 const api = {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import useNicheStore from '../../stores/nicheStore';
 import useProfileStore from '../../stores/profileStore';
 import useBatchStore from '../../stores/batchStore';
+import { useFilterStore } from '../../stores/filterStore';
 import Button from '../common/Button';
 import FileImporter from './FileImporter';
 import ProfileList from './ProfileList';
@@ -19,30 +20,34 @@ function NicheFeed() {
   } = useNicheStore();
 
   const {
-    getProfilesByNiche,
+    profiles,
     fetchProfiles,
     importFromFile,
-    setFilters,
     selectedProfileIds,
     setSelectedProfiles,
-    refreshStories,
-    profiles
+    refreshStories
   } = useProfileStore();
 
+  const { setFilter } = useFilterStore();
   const { createBatch } = useBatchStore();
 
+  // Only fetch niches on mount
   useEffect(() => {
     fetchNiches();
-    fetchProfiles();
-  }, [fetchNiches, fetchProfiles]);
+  }, [fetchNiches]);
 
   const [isAdding, setIsAdding] = useState(false);
   const [newNicheName, setNewNicheName] = useState('');
 
-  const handleNicheClick = (id) => {
-    const newId = id === selectedNicheId ? null : id;
-    setSelectedNicheId(newId);
-    setFilters({ nicheId: newId });
+  const handleNicheClick = async (id) => {
+    const nicheId = id === selectedNicheId ? null : id;
+    setSelectedNicheId(nicheId);
+    setFilter('nicheId', nicheId);
+    
+    // Only fetch profiles if a niche is selected
+    if (nicheId) {
+      await fetchProfiles();
+    }
   };
 
   const handleDelete = (e, id) => {
@@ -69,14 +74,6 @@ function NicheFeed() {
   };
 
   const niches = getNiches() || [];
-  console.log('Niches:', JSON.stringify(niches)); // Debug log with stringified array
-  console.log('Profiles:', JSON.stringify(profiles)); // Debug log for profiles
-
-  const getProfileCount = (nicheId) => {
-    const nicheProfiles = getProfilesByNiche(nicheId);
-    console.log(`Profiles for niche ${nicheId}:`, nicheProfiles); // Debug log for profiles per niche
-    return nicheProfiles.length;
-  };
 
   return (
     <div className="niche-feed">
@@ -129,7 +126,7 @@ function NicheFeed() {
                     data-testid="niche-name-input"
                   />
                   <span className="niche-feed__counter">
-                    {getProfileCount(niche.id)} profiles
+                    {niche.profile_count} profiles
                   </span>
                 </div>
                 <Button
@@ -161,6 +158,7 @@ function NicheFeed() {
                       );
                     }
                     await fetchProfiles();
+                    await fetchNiches(); // Refresh niches to update profile counts
                   } catch (error) {
                     console.error('Import failed:', error);
                     throw error;
@@ -184,7 +182,7 @@ function NicheFeed() {
                 </Button>
                 <Button
                   onClick={() => {
-                    const activeProfiles = getProfilesByNiche(selectedNicheId).filter(p => p.active_story);
+                    const activeProfiles = profiles.filter(p => p.active_story);
                     setSelectedProfiles(activeProfiles.map(p => p.id));
                   }}
                   disabled={!selectedNicheId}
@@ -196,7 +194,7 @@ function NicheFeed() {
                   onClick={async () => {
                     try {
                       await createBatch(selectedProfileIds, selectedNicheId);
-                      setSelectedProfiles([]); // Clear selection after batch creation
+                      setSelectedProfiles([]);
                     } catch (error) {
                       console.error('Failed to create batch:', error);
                     }

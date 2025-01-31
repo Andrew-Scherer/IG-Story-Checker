@@ -12,6 +12,9 @@ const BatchTable = () => {
   const [selectedBatchId, setSelectedBatchId] = useState(null);
   const [storiesModalOpen, setStoriesModalOpen] = useState(false);
   const [storiesUsernames, setStoriesUsernames] = useState([]);
+  const [resumingBatches, setResumingBatches] = useState(false);
+  const [startingBatches, setStartingBatches] = useState(false);
+  const [stoppingBatches, setStoppingBatches] = useState(false);
 
   const {
     batches,
@@ -19,6 +22,7 @@ const BatchTable = () => {
     error,
     fetchBatches,
     startBatches,
+    resumeBatches,
     stopBatches,
     deleteBatches,
     clearError,
@@ -114,8 +118,9 @@ const BatchTable = () => {
   };
 
   const handleStartSelected = async () => {
-    if (selectedBatches.length === 0) return;
+    if (selectedBatches.length === 0 || startingBatches) return;
     try {
+      setStartingBatches(true);
       await startBatches(selectedBatches);
     } catch (error) {
       console.error('Failed to start batches:', error);
@@ -131,15 +136,34 @@ const BatchTable = () => {
       } else {
         useBatchStore.getState().setError('Failed to start batches. Please try again.');
       }
+    } finally {
+      setStartingBatches(false);
+    }
+  };
+
+  const handleResumeSelected = async () => {
+    if (selectedBatches.length === 0 || resumingBatches) return;
+    try {
+      setResumingBatches(true);
+      await resumeBatches(selectedBatches);
+    } catch (error) {
+      console.error('Failed to resume batches:', error);
+      useBatchStore.getState().setError('Failed to resume batches. Please try again.');
+    } finally {
+      setResumingBatches(false);
     }
   };
 
   const handleStopSelected = async () => {
-    if (selectedBatches.length === 0) return;
+    if (selectedBatches.length === 0 || stoppingBatches) return;
     try {
+      setStoppingBatches(true);
       await stopBatches(selectedBatches);
     } catch (error) {
       console.error('Failed to stop batches:', error);
+      useBatchStore.getState().setError('Failed to stop batches. Please try again.');
+    } finally {
+      setStoppingBatches(false);
     }
   };
 
@@ -153,14 +177,36 @@ const BatchTable = () => {
     clearBatchLogs();
   };
 
+  // Check if any selected batch is paused
+  const hasSelectedPausedBatches = selectedBatches.length > 0 && 
+    batches.some(batch => selectedBatches.includes(batch.id) && batch.status === 'paused');
+
   return (
     <div className="batch-table">
       <div className="batch-table__controls">
         <Button onClick={handleDeleteSelected}>Delete Selection</Button>
         {selectedBatches.length > 0 && (
           <>
-            <Button onClick={handleStartSelected}>Start Selected</Button>
-            <Button onClick={handleStopSelected}>Stop Selected</Button>
+            <Button
+              onClick={handleStartSelected}
+              disabled={startingBatches || stoppingBatches}
+            >
+              {startingBatches ? 'Starting...' : 'Start Selected'}
+            </Button>
+            {hasSelectedPausedBatches && (
+              <Button
+                onClick={handleResumeSelected}
+                disabled={resumingBatches || startingBatches || stoppingBatches}
+              >
+                {resumingBatches ? 'Resuming...' : 'Resume Selected'}
+              </Button>
+            )}
+            <Button
+              onClick={handleStopSelected}
+              disabled={stoppingBatches || startingBatches}
+            >
+              {stoppingBatches ? 'Stopping...' : 'Stop Selected'}
+            </Button>
           </>
         )}
         <Button onClick={handleRefresh}>Refresh</Button>

@@ -1,91 +1,30 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
+import { useSortStore } from '../../stores/sortStore';
 import './Table.scss';
 
 const Table = ({
   data,
   columns,
-  pageSize = 1000,
   selectable = false,
   selectedRows = [],
-  onSelectionChange = () => {},
-  onSort: externalOnSort,
-  sortColumn: externalSortColumn,
-  sortDirection: externalSortDirection
+  onSelectionChange = () => {}
 }) => {
-  const [currentPage, setCurrentPage] = useState(1);
-  const [internalSortColumn, setInternalSortColumn] = useState(null);
-  const [internalSortDirection, setInternalSortDirection] = useState('asc');
+  const { sortColumn, sortDirection, setSort } = useSortStore();
   const [lastSelectedId, setLastSelectedId] = useState(null);
 
-  const sortColumn = externalSortColumn || internalSortColumn;
-  const sortDirection = externalSortDirection || internalSortDirection;
-
   const handleSort = (key) => {
-    console.log('handleSort called with key:', key);
-    const newDirection = sortColumn === key && sortDirection === 'asc' ? 'desc' : 'asc';
-    console.log('New sort direction:', newDirection);
+    if (!key) return;
     
-    if (externalOnSort) {
-      console.log('Using external sort');
-      externalOnSort(key, newDirection);
+    // If clicking the same column, toggle direction
+    if (sortColumn === key) {
+      setSort(key, sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      console.log('Using internal sort');
-      setInternalSortColumn(key);
-      setInternalSortDirection(newDirection);
+      // New column, start with ascending
+      setSort(key, 'asc');
     }
   };
-
-  const sortedData = useMemo(() => {
-    console.log('sortedData useMemo running');
-    console.log('Current sortColumn:', sortColumn);
-    console.log('Current sortDirection:', sortDirection);
-    console.log('Data sample:', data.slice(0, 5));
-
-    if (!sortColumn) return data;
-
-    return [...data].sort((a, b) => {
-      let aValue, bValue;
-
-      // Handle nested properties (e.g., niche.name)
-      if (sortColumn.includes('.')) {
-        const keys = sortColumn.split('.');
-        aValue = keys.reduce((obj, key) => obj && obj[key], a);
-        bValue = keys.reduce((obj, key) => obj && obj[key], b);
-      } else {
-        aValue = a[sortColumn];
-        bValue = b[sortColumn];
-      }
-
-      console.log('Sorting values:', { sortColumn, aValue, bValue, aObject: a, bObject: b });
-
-      // Handle cases where the value might be undefined (e.g., niche might be null)
-      aValue = aValue === undefined || aValue === null ? '' : aValue;
-      bValue = bValue === undefined || bValue === null ? '' : bValue;
-
-      const modifier = sortDirection === 'asc' ? 1 : -1;
-
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return aValue.localeCompare(bValue) * modifier;
-      } else {
-        if (aValue < bValue) return -1 * modifier;
-        if (aValue > bValue) return 1 * modifier;
-        return 0;
-      }
-    });
-  }, [data, sortColumn, sortDirection]);
-
-  console.log('Sorted data sample:', sortedData.slice(0, 5));
-
-  console.log('Sorted data sample:', sortedData.slice(0, 5));
-
-  const paginatedData = useMemo(() => {
-    const startIndex = (currentPage - 1) * pageSize;
-    return sortedData.slice(startIndex, startIndex + pageSize);
-  }, [sortedData, currentPage, pageSize]);
-
-  const totalPages = Math.ceil(sortedData.length / pageSize);
 
   const handleCheckboxClick = (id, event) => {
     event.stopPropagation(); // Prevent row click handler from firing
@@ -93,8 +32,8 @@ const Table = ({
     
     if (event.shiftKey && lastSelectedId) {
       // Get all visible rows between last selected and current
-      const lastIndex = paginatedData.findIndex(item => item.id === lastSelectedId);
-      const currentIndex = paginatedData.findIndex(item => item.id === id);
+      const lastIndex = data.findIndex(item => item.id === lastSelectedId);
+      const currentIndex = data.findIndex(item => item.id === id);
       const start = Math.min(lastIndex, currentIndex);
       const end = Math.max(lastIndex, currentIndex);
       
@@ -102,9 +41,9 @@ const Table = ({
       const isSelecting = !selectedRows.includes(id);
       for (let i = start; i <= end; i++) {
         if (isSelecting) {
-          newSelected.add(paginatedData[i].id);
+          newSelected.add(data[i].id);
         } else {
-          newSelected.delete(paginatedData[i].id);
+          newSelected.delete(data[i].id);
         }
       }
     } else {
@@ -122,16 +61,16 @@ const Table = ({
 
   const handleSelectAll = (event) => {
     event.stopPropagation(); // Prevent row click handler from firing
-    const allSelected = paginatedData.every(item => selectedRows.includes(item.id));
+    const allSelected = data.every(item => selectedRows.includes(item.id));
     if (allSelected) {
       onSelectionChange([]);
     } else {
-      const newSelected = [...new Set([...selectedRows, ...paginatedData.map(item => item.id)])];
+      const newSelected = [...new Set([...selectedRows, ...data.map(item => item.id)])];
       onSelectionChange(newSelected);
     }
   };
 
-  const tableColumns = useMemo(() => {
+  const tableColumns = React.useMemo(() => {
     if (!selectable) return columns;
 
     const selectColumn = {
@@ -140,7 +79,7 @@ const Table = ({
         <input
           type="checkbox"
           onChange={handleSelectAll}
-          checked={paginatedData.length > 0 && paginatedData.every(item => selectedRows.includes(item.id))}
+          checked={data.length > 0 && data.every(item => selectedRows.includes(item.id))}
         />
       ),
       render: (item) => (
@@ -153,7 +92,7 @@ const Table = ({
     };
 
     return [selectColumn, ...columns];
-  }, [selectable, columns, paginatedData, selectedRows, onSelectionChange, handleCheckboxClick, handleSelectAll]);
+  }, [selectable, columns, data, selectedRows, onSelectionChange]);
 
   return (
     <div className="table-wrapper">
@@ -172,12 +111,17 @@ const Table = ({
                 data-direction={sortColumn === key ? sortDirection : undefined}
               >
                 {title}
+                {sortable && sortColumn === key && (
+                  <span className="table__header-sort-indicator">
+                    {sortDirection === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {paginatedData.map((item, index) => (
+          {data.map((item, index) => (
             <tr 
               key={item.id} 
               className={classNames('table__row', {
@@ -191,13 +135,13 @@ const Table = ({
                 
                 if (e.shiftKey && lastSelectedId) {
                   // Range selection
-                  const lastIndex = paginatedData.findIndex(row => row.id === lastSelectedId);
-                  const currentIndex = paginatedData.findIndex(row => row.id === item.id);
+                  const lastIndex = data.findIndex(row => row.id === lastSelectedId);
+                  const currentIndex = data.findIndex(row => row.id === item.id);
                   const start = Math.min(lastIndex, currentIndex);
                   const end = Math.max(lastIndex, currentIndex);
                   
                   for (let i = start; i <= end; i++) {
-                    newSelected.add(paginatedData[i].id);
+                    newSelected.add(data[i].id);
                   }
                 } else if (e.ctrlKey || e.metaKey) {
                   // Toggle selection
@@ -230,29 +174,6 @@ const Table = ({
           ))}
         </tbody>
       </table>
-      {totalPages > 1 && (
-        <div className="table__pagination">
-          <button
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="table__pagination-button"
-            aria-label="previous"
-          >
-            Previous
-          </button>
-          <span className="table__pagination-info">
-            Page {currentPage} of {totalPages}
-          </span>
-          <button
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="table__pagination-button"
-            aria-label="next"
-          >
-            Next
-          </button>
-        </div>
-      )}
     </div>
   );
 };
@@ -265,13 +186,9 @@ Table.propTypes = {
     sortable: PropTypes.bool,
     render: PropTypes.func
   })).isRequired,
-  pageSize: PropTypes.number,
   selectable: PropTypes.bool,
   selectedRows: PropTypes.arrayOf(PropTypes.oneOfType([PropTypes.string, PropTypes.number])),
-  onSelectionChange: PropTypes.func,
-  onSort: PropTypes.func,
-  sortColumn: PropTypes.string,
-  sortDirection: PropTypes.oneOf(['asc', 'desc'])
+  onSelectionChange: PropTypes.func
 };
 
 export default Table;

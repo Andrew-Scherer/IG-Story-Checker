@@ -1,6 +1,6 @@
 """
 Batch Execution Manager
-Handles batch processing and execution logic
+Handles batch execution logic and processing
 """
 
 import asyncio
@@ -8,10 +8,12 @@ import time
 from datetime import datetime, UTC
 from typing import Optional
 from flask import current_app
-from models import db, Batch
+from models import db, Batch, BatchProfile
 from core.interfaces.batch_management import IBatchStateManager, IBatchExecutionManager
 from core.worker import WorkerPool
 from services.batch_log_service import BatchLogService
+
+from threading import Lock
 
 class BatchExecutionManager(IBatchExecutionManager):
     """Manages batch execution and processing"""
@@ -23,6 +25,35 @@ class BatchExecutionManager(IBatchExecutionManager):
             state_manager: State manager implementation
         """
         self.state_manager = state_manager
+        self._executing_batches = set()
+        self._lock = Lock()
+
+    def is_executing(self, batch_id: str) -> bool:
+        """Check if batch is currently executing"""
+        with self._lock:
+            return batch_id in self._executing_batches
+
+    def start_execution(self, batch_id: str) -> bool:
+        """Try to start batch execution"""
+        with self._lock:
+            if batch_id in self._executing_batches:
+                return False
+            self._executing_batches.add(batch_id)
+            return True
+
+    def stop_execution(self, batch_id: str) -> None:
+        """Stop batch execution"""
+        with self._lock:
+            self._executing_batches.discard(batch_id)
+
+    def process_batch(self, batch_id: str) -> None:
+        """Process a single batch
+        
+        Args:
+            batch_id: ID of batch to process
+        """
+        current_app.logger.info(f"=== Processing Batch {batch_id} ===")
+        self.execute_batch(batch_id)
 
     async def _process_batch_async(self, batch_id: str, worker_pool: WorkerPool) -> None:
         """Process a single batch asynchronously
@@ -33,41 +64,33 @@ class BatchExecutionManager(IBatchExecutionManager):
         """
         batch = None
         try:
-            # Log batch lookup
-            current_app.logger.info(f"=== Starting Batch {batch_id} ===")
-            current_app.logger.info("1. Looking up batch in database...")
             batch = db.session.get(Batch, batch_id)
             if not batch:
                 current_app.logger.error(f'Batch {batch_id} not found')
                 BatchLogService.create_log(batch_id, 'ERROR', f'Batch {batch_id} not found')
                 return
 
-            # Log batch start
-            current_app.logger.info(f"2. Found batch with {batch.total_profiles} profiles")
-            BatchLogService.create_log(batch_id, 'BATCH_START', f'Starting batch processing for {batch.total_profiles} profiles')
-
-            # Mark as in_progress
-            current_app.logger.info("3. Updating batch status to in_progress...")
-            batch.status = 'in_progress'
-            batch.completed_profiles = 0
-            batch.successful_checks = 0
-            batch.failed_checks = 0
-            db.session.commit()
-            BatchLogService.create_log(batch_id, 'STATUS_UPDATE', f'Batch status updated to in_progress')
-
-            # Process each profile
-            current_app.logger.info("4. Beginning profile processing...")
-            db.session.refresh(batch)
-            for batch_profile in batch.profiles:
+            # Get profiles that need processing
+            remaining_profiles = [
+                bp for bp in batch.profiles
+                if bp.status not in ['completed', 'failed']
+            ]
+            current_app.logger.info(f"Processing {len(remaining_profiles)} profiles")
+            BatchLogService.create_log(
+                batch_id,
+                'INFO',
+                f'Processing {len(remaining_profiles)} profiles'
+            )
+            
+            for batch_profile in remaining_profiles:
                 BatchLogService.create_log(
                     batch_id, 
                     'PROFILE_CHECK_START',
-                    f'Starting check for profile {batch_profile.profile.username}',
+                    f'Starting check for {batch_profile.profile.username}',
                     profile_id=batch_profile.profile.id
                 )
 
                 # Get available worker with retries
-                current_app.logger.info("5. Requesting worker from pool...")
                 MAX_WORKER_RETRIES = 5
                 worker = None
                 retry_count = 0
@@ -87,11 +110,6 @@ class BatchExecutionManager(IBatchExecutionManager):
 
                 if not worker:
                     current_app.logger.error('Failed to get worker after max retries')
-                    BatchLogService.create_log(
-                        batch_id,
-                        'WORKER_UNAVAILABLE',
-                        'Failed to get worker after max retries'
-                    )
                     batch_profile.status = 'failed'
                     batch_profile.error = 'No worker available after retries'
                     batch.failed_checks += 1
@@ -99,116 +117,70 @@ class BatchExecutionManager(IBatchExecutionManager):
                     db.session.commit()
                     continue
 
-                current_app.logger.info(f'6. Got worker with proxy {worker.proxy_session.proxy_url_safe}')
-                BatchLogService.create_log(
-                    batch_id,
-                    'WORKER_ASSIGNED',
-                    f'Worker assigned with proxy {worker.proxy_session.proxy_url_safe}',
-                    proxy_id=worker.proxy_session.proxy.id
-                )
-
                 try:
                     # Check story
-                    current_app.logger.info(f'7. Checking story for {batch_profile.profile.username}')
+                    start_time = time.time()
+                    success, has_story = await worker.check_story(batch_profile)
+                    end_time = time.time()
+                    duration = end_time - start_time
+
+                    if success:
+                        batch_profile.status = 'completed'
+                        batch_profile.has_story = has_story
+                        batch_profile.error = None
+                        if has_story:
+                            batch.successful_checks += 1
+                            batch_profile.profile.record_check(story_detected=True)
+                        BatchLogService.create_log(
+                            batch_id,
+                            'STORY_CHECK_SUCCESS',
+                            f'Story check succeeded for {batch_profile.profile.username}. Story detected: {has_story}. Duration: {duration:.2f} seconds',
+                            profile_id=batch_profile.profile.id
+                        )
+                    else:
+                        error_msg = getattr(batch_profile, 'error', 'Unknown error')
+                        BatchLogService.create_log(
+                            batch_id,
+                            'CHECK_FAILED',
+                            f'Check failed for {batch_profile.profile.username}: {error_msg}. Duration: {duration:.2f} seconds',
+                            profile_id=batch_profile.profile.id
+                        )
+                        batch.failed_checks += 1
+
+                except Exception as e:
+                    batch_profile.status = 'failed'
+                    batch_profile.error = str(e)
+                    batch.failed_checks += 1
                     BatchLogService.create_log(
                         batch_id,
-                        'STORY_CHECK_START',
-                        f'Checking story for {batch_profile.profile.username}',
-                        profile_id=batch_profile.profile.id,
-                        proxy_id=worker.proxy_session.proxy.id
-                    )
-
-                    # Try to check story with retries for rate limits
-                    MAX_RETRIES = 3
-                    retry_count = 0
-                    success = False
-                    has_story = False
-                    while retry_count < MAX_RETRIES and not success:
-                        try:
-                            start_time = time.time()
-                            success, has_story = await worker.check_story(batch_profile)
-                            end_time = time.time()
-                            duration = end_time - start_time
-
-                            if success:
-                                batch_profile.status = 'completed'
-                                batch_profile.has_story = has_story
-                                batch_profile.error = None
-                                if has_story:
-                                    batch.successful_checks += 1
-                                    batch_profile.profile.record_check(story_detected=True)
-                                BatchLogService.create_log(
-                                    batch_id,
-                                    'STORY_CHECK_SUCCESS',
-                                    f'Story check succeeded for {batch_profile.profile.username}. Story detected: {has_story}. Duration: {duration:.2f} seconds',
-                                    profile_id=batch_profile.profile.id
-                                )
-                                BatchLogService.create_log(
-                                    batch_id,
-                                    'STORY_STATUS',
-                                    'Story found!' if has_story else 'Story not found!',
-                                    profile_id=batch_profile.profile.id
-                                )
-                            else:
-                                error_msg = getattr(batch_profile, 'error', 'Unknown error')
-                                BatchLogService.create_log(
-                                    batch_id,
-                                    'CHECK_FAILED',
-                                    f'Check failed for {batch_profile.profile.username}: {error_msg}. Duration: {duration:.2f} seconds',
-                                    profile_id=batch_profile.profile.id
-                                )
-                                batch.failed_checks += 1
-
-                        except Exception as e:
-                            if "Rate limited" in str(e):
-                                retry_count += 1
-                                if retry_count < MAX_RETRIES:
-                                    current_app.logger.info(f'Rate limited, waiting before retry {retry_count} for {batch_profile.profile.username}')
-                                    await asyncio.sleep(20)
-                                    continue
-
-                            batch_profile.status = 'failed'
-                            batch_profile.error = str(e)
-                            batch.failed_checks += 1
-                            BatchLogService.create_log(
-                                batch_id,
-                                'CHECK_FAILED',
-                                f'Check failed for {batch_profile.profile.username}: {str(e)}',
-                                profile_id=batch_profile.profile.id
-                            )
-                            break
-
-                    BatchLogService.create_log(
-                        batch_id,
-                        'PROFILE_CHECK_END',
-                        f'Check complete for profile {batch_profile.profile.username}',
+                        'CHECK_FAILED',
+                        f'Check failed for {batch_profile.profile.username}: {str(e)}',
                         profile_id=batch_profile.profile.id
                     )
 
-                    await asyncio.sleep(20)  # Delay between profiles
-
                 finally:
-                    current_app.logger.info(f'8. Releasing worker with proxy {worker.proxy_session.proxy_url_safe}')
                     await worker_pool.release_worker(worker)
                     await asyncio.sleep(1)
 
-                batch.completed_profiles += 1
+                # Update completed_profiles count
+                batch.completed_profiles = len([
+                    bp for bp in batch.profiles
+                    if bp.status in ['completed', 'failed']
+                ])
                 db.session.commit()
 
-            # Complete batch
-            current_app.logger.info("9. Batch processing complete")
-            batch.completed_at = datetime.now(UTC)
-            db.session.commit()
-
-            current_app.logger.info(f'Batch {batch.id} completed: {batch.successful_checks} successful, {batch.failed_checks} failed')
+            # Check if all profiles are processed
+            all_profiles_count = len(batch.profiles)
+            completed_count = len([bp for bp in batch.profiles if bp.status in ['completed', 'failed']])
+            
+            if completed_count >= all_profiles_count:
+                self.state_manager.mark_completed(batch_id)
+            
             BatchLogService.create_log(
                 batch_id,
                 'BATCH_END',
                 f'Batch completed: {batch.successful_checks} successful, {batch.failed_checks} failed'
             )
-
-            # Handle completion through state manager
-            self.handle_completion(batch_id)
 
         except Exception as e:
             current_app.logger.error(f'Error processing batch {batch_id}: {e}', exc_info=True)
@@ -222,7 +194,9 @@ class BatchExecutionManager(IBatchExecutionManager):
         Args:
             batch_id: ID of batch to execute
         """
-        current_app.logger.info(f"=== Starting execute_batch for batch_id: {batch_id} ===")
+        if not self.start_execution(batch_id):
+            current_app.logger.error(f"Batch {batch_id} is already executing")
+            return
 
         # Create a new event loop for this thread
         loop = asyncio.new_event_loop()
@@ -230,24 +204,13 @@ class BatchExecutionManager(IBatchExecutionManager):
 
         try:
             # Get worker pool
-            current_app.logger.info("1. Getting worker pool...")
             worker_pool = getattr(current_app, 'worker_pool', None)
-            current_app.logger.info(f"2. Worker pool obtained: {worker_pool is not None}")
             if not worker_pool:
                 current_app.logger.error('No worker pool available')
                 BatchLogService.create_log(batch_id, 'ERROR', 'No worker pool available')
                 return
 
-            # Verify batch exists
-            current_app.logger.info("3. Verifying batch exists...")
-            batch = db.session.get(Batch, batch_id)
-            if not batch:
-                current_app.logger.error(f'Batch {batch_id} not found')
-                BatchLogService.create_log(batch_id, 'ERROR', f'Batch {batch_id} not found')
-                return
-
             # Run the async process_batch function
-            current_app.logger.info(f"4. Running process_batch_async for batch_id: {batch_id}")
             loop.run_until_complete(self._process_batch_async(batch_id, worker_pool))
 
         except Exception as e:
@@ -257,9 +220,8 @@ class BatchExecutionManager(IBatchExecutionManager):
             raise
 
         finally:
+            self.stop_execution(batch_id)
             loop.close()
-            current_app.logger.info(f"=== Finished execute_batch for batch_id: {batch_id} ===")
-            BatchLogService.create_log(batch_id, 'INFO', f'Finished execute_batch for batch_id: {batch_id}')
 
     def handle_completion(self, batch_id: str) -> None:
         """Handle successful batch completion
@@ -267,12 +229,7 @@ class BatchExecutionManager(IBatchExecutionManager):
         Args:
             batch_id: ID of completed batch
         """
-        current_app.logger.info(f"Handling completion for batch {batch_id}")
         self.state_manager.mark_completed(batch_id)
-        worker_pool = getattr(current_app, 'worker_pool', None)
-        if worker_pool:
-            worker_pool.unregister_batch(batch_id)
-            current_app.logger.info(f'Unregistered batch {batch_id} from worker pool')
 
     def handle_failure(self, batch_id: str, error: str) -> None:
         """Handle batch execution failure
@@ -281,11 +238,6 @@ class BatchExecutionManager(IBatchExecutionManager):
             batch_id: ID of failed batch
             error: Error message
         """
-        current_app.logger.info(f"Handling failure for batch {batch_id}: {error}")
         batch = db.session.get(Batch, batch_id)
         if batch:
             self.state_manager.move_to_end(batch)
-            worker_pool = getattr(current_app, 'worker_pool', None)
-            if worker_pool:
-                worker_pool.unregister_batch(batch_id)
-                current_app.logger.info(f'Unregistered batch {batch_id} from worker pool')

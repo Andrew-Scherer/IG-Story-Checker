@@ -10,14 +10,18 @@
 ### 1. Duplicate Profile Detection
 
 #### 1.1 Analyze current duplicate detection logic
-- [ ] Review duplicate check in `server/api/profile.py` (import_profiles function)
-- [ ] Identify the exact criteria used for flagging duplicates
+- [x] Review duplicate check in `server/api/profile.py` (import_profiles function)
+- [x] Identify the exact criteria used for flagging duplicates
 
 #### 1.2 Test duplicate detection sensitivity
 - [ ] Create a test dataset with known duplicates and slight variations
-- [ ] Implement logging for duplicate detection process
+- [x] Implement logging for duplicate detection process
 - [ ] Run import process with test dataset and analyze results
 - [ ] Quantify false positive rate for duplicate detection
+
+#### 1.3 Analyze logging results
+- [ ] Review logs from import process to understand duplicate detection patterns
+- [ ] Identify potential causes of over-sensitive duplicate detection
 
 ### 2. Database vs UI Discrepancy
 
@@ -37,7 +41,7 @@
 ### 3. Large-Scale Import Performance
 
 #### 3.1 Profile current import process
-- [ ] Implement performance logging in the import process
+- [x] Implement performance logging in the import process
 - [ ] Test import with varying numbers of profiles (e.g., 100, 1000, 10000)
 - [ ] Identify performance bottlenecks
 
@@ -66,7 +70,13 @@
 - [ ] Measure time, CPU usage, and memory consumption for each test
 
 ## Next Steps
-After completing the investigation and testing, we will:
+1. Create a test dataset with known duplicates and slight variations
+2. Run the import process with the test dataset and analyze the results
+3. Review the logs to understand duplicate detection patterns
+4. Begin implementing database queries to verify content
+5. Start reviewing the UI listing logic in the profileStore
+
+After completing these steps, we will:
 1. Analyze results and identify root causes of each issue
 2. Develop specific solutions for each problem area
 3. Implement and test fixes iteratively

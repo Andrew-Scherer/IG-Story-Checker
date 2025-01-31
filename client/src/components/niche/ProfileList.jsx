@@ -1,58 +1,40 @@
 import React, { useEffect } from 'react';
 import useProfileStore from '../../stores/profileStore';
+import { useFilterStore } from '../../stores/filterStore';
+import { usePaginationStore } from '../../stores/paginationStore';
+import { useSortStore } from '../../stores/sortStore';
 import Table from '../common/Table';
 import Pagination from '../common/Pagination';
 import './ProfileList.scss';
 
-const ProfileList = ({ nicheId }) => {
+function ProfileList({ nicheId }) {
   const {
     profiles,
-    totalProfiles,
-    currentPage,
-    pageSize,
-    sortColumn,
-    sortDirection,
     loading,
     error,
     selectedProfileIds,
-    setFilters,
     setSelectedProfiles,
-    fetchProfiles,
-    updateProfile
+    fetchProfiles
   } = useProfileStore();
 
+  const { setFilter } = useFilterStore();
+  const { currentPage, pageSize, reset: resetPagination } = usePaginationStore();
+  const { sortColumn, sortDirection } = useSortStore();
+
+  // Set niche filter and reset pagination when niche changes
   useEffect(() => {
-    setFilters({ nicheId });
+    setFilter('nicheId', nicheId);
+    resetPagination();
     fetchProfiles();
-  }, [nicheId, setFilters, fetchProfiles]);
+  }, [nicheId, setFilter, resetPagination, fetchProfiles]);
 
+  // Fetch profiles when filters, pagination, or sorting changes
   useEffect(() => {
-    console.log('ProfileList - Current profiles:', profiles);
-    console.log('ProfileList - Current sort column:', sortColumn);
-    console.log('ProfileList - Current sort direction:', sortDirection);
-  }, [profiles, sortColumn, sortDirection]);
-
-  const handlePageChange = (page) => {
-    console.log('ProfileList - Changing page to:', page);
-    fetchProfiles({ page });
-  };
-
-  const handleSort = (column) => {
-    console.log('ProfileList - Sorting by column:', column);
-    const direction = column === sortColumn && sortDirection === 'asc' ? 'desc' : 'asc';
-    console.log('ProfileList - New sort direction:', direction);
-    console.log('ProfileList - Current sortColumn:', sortColumn);
-    console.log('ProfileList - Current sortDirection:', sortDirection);
-    
-    // Ensure 'niche.name' is correctly handled
-    const adjustedColumn = column === 'niche.name' ? 'niche__name' : column;
-    
-    console.log('ProfileList - Fetching profiles with:', { sortColumn: adjustedColumn, sortDirection: direction });
-    fetchProfiles({ sortColumn: adjustedColumn, sortDirection: direction });
-  };
+    fetchProfiles();
+  }, [currentPage, pageSize, sortColumn, sortDirection, fetchProfiles]);
 
   const formatDate = (dateString) => {
-    if (!dateString) return 'Never';
+    if (!dateString) return '-';
     return new Date(dateString).toLocaleString();
   };
 
@@ -63,8 +45,8 @@ const ProfileList = ({ nicheId }) => {
       sortable: true,
       render: (profile) => (
         <div className="profile-list__username">
-          <a 
-            href={`https://instagram.com/${profile.username}`}
+          <a
+            href={profile.url || `https://instagram.com/${profile.username}`}
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -74,107 +56,50 @@ const ProfileList = ({ nicheId }) => {
       )
     },
     {
-      key: 'niche.name',
-      title: 'Niche',
+      key: 'last_checked',
+      title: 'Last Check',
+      sortable: true,
+      render: (profile) => formatDate(profile.last_checked)
+    },
+    {
+      key: 'last_detected',
+      title: 'Last Story',
+      sortable: true,
+      render: (profile) => formatDate(profile.last_detected)
+    },
+    {
+      key: 'detection_rate',
+      title: 'Story Detection Rate',
       sortable: true,
       render: (profile) => {
-        console.log('Rendering niche for profile:', profile);
-        return profile.niche ? profile.niche.name : '-';
+        const rate = profile.total_checks
+          ? ((profile.total_detections / profile.total_checks) * 100).toFixed(1)
+          : 0;
+        return `${rate}%`;
       }
-    },
-    {
-      key: 'status',
-      title: 'Status',
-      sortable: true,
-      render: (profile) => (
-        <div className="profile-list__status">
-          <span 
-            className={`profile-list__status-badge profile-list__status-badge--${profile.status}`}
-            onClick={async (e) => {
-              e.stopPropagation();
-              await updateProfile(profile.id, {
-                status: profile.status === 'active' ? 'inactive' : 'active'
-              });
-            }}
-          >
-            {profile.status}
-          </span>
-        </div>
-      )
-    },
-    {
-      key: 'active_story',
-      title: 'Active Story',
-      sortable: true,
-      render: (profile) => (
-        <div className={`profile-list__story-status ${profile.active_story ? 'profile-list__story-status--active' : ''}`}>
-          {profile.active_story ? 'Yes' : 'No'}
-        </div>
-      )
-    },
-    {
-      key: 'last_story_detected',
-      title: 'Last Story Detected',
-      sortable: true,
-      render: (profile) => formatDate(profile.last_story_detected)
-    },
-    {
-      key: 'total_checks',
-      title: 'Total Checks',
-      sortable: true,
-      render: (profile) => profile.total_checks
-    },
-    {
-      key: 'total_detections',
-      title: 'Total Detections',
-      sortable: true,
-      render: (profile) => profile.total_detections
     }
   ];
 
-  const totalPages = Math.ceil(totalProfiles / pageSize);
+  if (loading) {
+    return <div className="profile-list__loading">Loading...</div>;
+  }
+
+  if (error) {
+    return <div className="profile-list__error">{error}</div>;
+  }
 
   return (
     <div className="profile-list">
-      {loading && <div className="profile-list__loading">Loading...</div>}
-      {error && <div className="profile-list__error">{error}</div>}
-
-      <div className="profile-list__info">
-        Total Profiles: {totalProfiles}
-      </div>
-
-      {selectedProfileIds.length > 0 && (
-        <div className="profile-list__selection-info">
-          {selectedProfileIds.length} profiles selected
-        </div>
-      )}
-
-      {profiles.length > 0 ? (
-        <>
-          <Table
-            data={profiles}
-            columns={columns}
-            selectable={true}
-            selectedRows={selectedProfileIds}
-            onSelectionChange={setSelectedProfiles}
-            onSort={handleSort}
-            sortColumn={sortColumn}
-            sortDirection={sortDirection}
-          />
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
-          />
-        </>
-      ) : (
-        <div className="profile-list__empty">
-          <p>No profiles found</p>
-          <p>Import profiles using the file importer above</p>
-        </div>
-      )}
+      <Table
+        data={profiles}
+        columns={columns}
+        selectable={true}
+        selectedRows={selectedProfileIds}
+        onSelectionChange={setSelectedProfiles}
+      />
+      <Pagination />
     </div>
   );
-};
+}
 
 export default ProfileList;

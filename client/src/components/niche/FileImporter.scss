@@ -1,64 +1,61 @@
 .file-importer {
-  position: relative;
-  width: 120px;
-  padding: 8px;
-  background: #fff;
+  margin-bottom: 1rem;
 
   &--disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    background: #f5f5f5;
+    opacity: 0.7;
+    pointer-events: none;
   }
 
   &__input-group {
-    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
 
   &__label {
-    display: block;
-    cursor: pointer;
-    padding: 6px 12px;
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    background-color: #007bff;
+    color: white;
     border-radius: 4px;
-    text-align: center;
+    cursor: pointer;
+    transition: background-color 0.2s;
 
     &:hover {
-      background: #e9ecef;
+      background-color: #0056b3;
     }
   }
 
   &__input {
-    position: absolute;
-    width: 0.1px;
-    height: 0.1px;
-    opacity: 0;
-    overflow: hidden;
-    z-index: -1;
+    display: none;
   }
 
   &__error {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    color: #dc3545;
-    margin-top: 4px;
-    font-size: 0.75em;
-    background: #fff;
-    padding: 4px;
-    border: 1px solid #dc3545;
+    padding: 0.75rem;
     border-radius: 4px;
+    background-color: #fff;
+    border: 1px solid #dc3545;
+    color: #dc3545;
+    margin-top: 0.5rem;
+  }
+
+  &__error-line {
+    margin: 0.25rem 0;
+    padding: 0.25rem 0;
+
+    &--success {
+      color: #28a745;
+      font-weight: 500;
+    }
+
+    &:not(:last-child) {
+      border-bottom: 1px solid rgba(220, 53, 69, 0.2);
+    }
   }
 
   &__message {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    margin-top: 4px;
-    font-size: 0.75em;
     color: #6c757d;
-    text-align: center;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
   }
 }

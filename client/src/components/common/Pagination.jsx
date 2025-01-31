@@ -1,12 +1,25 @@
 import React, { useState } from 'react';
+import { usePaginationStore } from '../../stores/paginationStore';
 import './Pagination.scss';
 
-const Pagination = ({ currentPage, totalPages, onPageChange }) => {
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
+
+const Pagination = () => {
+  const {
+    currentPage,
+    pageSize,
+    loading,
+    getTotalPages,
+    setPage,
+    setPageSize
+  } = usePaginationStore();
+
   const [inputPage, setInputPage] = useState('');
+  const totalPages = getTotalPages();
 
   const handlePageClick = (page) => {
     if (page >= 1 && page <= totalPages) {
-      onPageChange(page);
+      setPage(page);
     }
   };
 
@@ -17,7 +30,7 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
   const handleGoToPage = () => {
     const page = parseInt(inputPage);
     if (page >= 1 && page <= totalPages) {
-      onPageChange(page);
+      setPage(page);
       setInputPage('');
     }
   };
@@ -26,6 +39,10 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
     if (e.key === 'Enter') {
       handleGoToPage();
     }
+  };
+
+  const handlePageSizeChange = (e) => {
+    setPageSize(Number(e.target.value));
   };
 
   const renderPageNumbers = () => {
@@ -43,6 +60,7 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
           key={i}
           className={`pagination__number ${currentPage === i ? 'pagination__number--active' : ''}`}
           onClick={() => handlePageClick(i)}
+          disabled={loading}
         >
           {i}
         </button>
@@ -51,41 +69,64 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
     return pages;
   };
 
+  if (totalPages <= 1) return null;
+
   return (
     <div className="pagination">
-      <button
-        className="pagination__arrow"
-        onClick={() => handlePageClick(currentPage - 1)}
-        disabled={currentPage === 1}
-      >
-        &lt;
-      </button>
-      {renderPageNumbers()}
-      <button
-        className="pagination__arrow"
-        onClick={() => handlePageClick(currentPage + 1)}
-        disabled={currentPage === totalPages}
-      >
-        &gt;
-      </button>
-      <div className="pagination__goto">
-        <input
-          type="number"
-          min="1"
-          max={totalPages}
-          value={inputPage}
-          onChange={handleInputChange}
-          onKeyPress={handleKeyPress}
-          placeholder="Page"
-          className="pagination__input"
-        />
+      <div className="pagination__controls">
         <button
-          className="pagination__go-button"
-          onClick={handleGoToPage}
-          disabled={!inputPage}
+          className="pagination__arrow"
+          onClick={() => handlePageClick(currentPage - 1)}
+          disabled={currentPage === 1 || loading}
         >
-          Go
+          &lt;
         </button>
+
+        {renderPageNumbers()}
+
+        <button
+          className="pagination__arrow"
+          onClick={() => handlePageClick(currentPage + 1)}
+          disabled={currentPage === totalPages || loading}
+        >
+          &gt;
+        </button>
+
+        <div className="pagination__goto">
+          <input
+            type="number"
+            min="1"
+            max={totalPages}
+            value={inputPage}
+            onChange={handleInputChange}
+            onKeyPress={handleKeyPress}
+            placeholder="Page"
+            className="pagination__input"
+            disabled={loading}
+          />
+          <button
+            className="pagination__go-button"
+            onClick={handleGoToPage}
+            disabled={!inputPage || loading}
+          >
+            Go
+          </button>
+        </div>
+      </div>
+
+      <div className="pagination__size-selector">
+        <select
+          value={pageSize}
+          onChange={handlePageSizeChange}
+          disabled={loading}
+          className="pagination__size-select"
+        >
+          {PAGE_SIZE_OPTIONS.map(size => (
+            <option key={size} value={size}>
+              {size} per page
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );

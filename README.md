@@ -9,6 +9,8 @@ Core functionality:
 - **Batch Processing**: Check stories across multiple profiles
 - **Progress Monitoring**: Track story detection results
 - **Resource Management**: Efficient proxy and session handling
+- **Advanced Filtering**: Centralized filtering system across views ([see FILTERING.md](client/docs/FILTERING.md))
+- **Server-Side Pagination**: Efficient data loading and navigation ([see PAGINATION.md](client/docs/PAGINATION.md))
 
 ## 2. Interface
 
@@ -20,7 +22,8 @@ Core functionality:
 1. **Profile List**
    - Multi-select functionality
    - Profile statistics display
-   - Niche filtering
+   - Synchronized filtering with Master List
+   - Server-side pagination
    - Sort controls
 
 2. **File Importer**
@@ -91,7 +94,21 @@ Core functionality:
    - System creates batch
    - Batch appears in Batch tab
 
-### 3.2. Batch Processing and Queueing
+### 3.2. Profile Navigation
+
+1. **Pagination**
+   - Server-side pagination for efficient data loading
+   - Configurable page sizes (25, 50, 100 items per page)
+   - Synchronized across views
+   - Maintains state during filtering
+
+2. **Filtering**
+   - Real-time search
+   - Niche filtering
+   - Status filtering
+   - See [FILTERING.md](client/docs/FILTERING.md) for details
+
+### 3.3. Batch Processing and Queueing
 
 1. **Start Processing**
    - Select batches in Batch tab
@@ -116,7 +133,7 @@ Core functionality:
    - Track profile statistics
    - Review batch processing history
 
-### 3.3. Resource Management
+### 3.4. Resource Management
 
 1. **Proxy Assignment**
    - Just-in-time proxy selection
@@ -193,6 +210,7 @@ Core functionality:
 - Efficient proxy usage
 - Session management
 - Database operations
+- Server-side pagination for large datasets
 
 ## 8. Security
 
@@ -206,6 +224,14 @@ Core functionality:
 - Resource isolation
 - Error boundaries
 
+## Documentation
+
+- [Filtering System](client/docs/FILTERING.md): Details about the centralized filtering system
+- [Pagination System](client/docs/PAGINATION.md): Information about server-side pagination
+- [Architecture](ARCHITECTURE.md): System architecture and design
+- [Implementation Plan](IMPLEMENTATION_PLAN.md): Development roadmap
+- [Workflow](WORKFLOW.md): Common usage patterns
+
 ## Conclusion
 
 The Instagram Story Checker provides:
@@ -214,5 +240,6 @@ The Instagram Story Checker provides:
 3. Comprehensive monitoring
 4. Resource optimization
 5. Error resilience
+6. Scalable data handling
 
 Designed for reliability and maintainability in checking Instagram stories at scale.

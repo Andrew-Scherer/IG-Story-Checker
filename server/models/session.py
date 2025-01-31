@@ -1,11 +1,10 @@
-"""
-Session Model
-Manages Instagram session data
-"""
+"""Session Model
+Manages Instagram session data"""
 
-from sqlalchemy import Column, Integer, String, ForeignKey, Enum
+from sqlalchemy import Column, String, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 from .base import BaseModel, db
+import uuid
 
 class Session(BaseModel):
     """Instagram session model"""
@@ -17,7 +16,7 @@ class Session(BaseModel):
     STATUS_DISABLED = 'disabled'
     
     # Primary key
-    id = Column(Integer, primary_key=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     
     # Session data
     session = Column(String, unique=True, nullable=False)
@@ -28,8 +27,11 @@ class Session(BaseModel):
     )
     
     # Proxy relationship
-    proxy_id = Column(String, ForeignKey('proxies.id'), unique=True)  # One session per proxy
+    proxy_id = Column(String(36), ForeignKey('proxies.id'), unique=True)  # One session per proxy
     proxy = relationship("Proxy", back_populates="sessions")
+    
+    # Error logs relationship
+    error_logs = relationship("ProxyErrorLog", back_populates="session")
     
     def to_dict(self):
         """Convert session to dictionary"""

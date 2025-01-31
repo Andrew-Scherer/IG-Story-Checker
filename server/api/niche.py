@@ -6,9 +6,9 @@ Handles HTTP endpoints for niche management
 import traceback
 from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import text
 from models.niche import Niche
 from extensions import db
+from reassign_profiles_to_first_niche import reassign_profiles
 
 # Create blueprint
 niche_bp = Blueprint('niche', __name__)
@@ -18,16 +18,13 @@ def list_niches():
     """Get list of niches in display order"""
     try:
         current_app.logger.info("=== GET /api/niches ===")
-        current_app.logger.info("1. Checking database connection...")
-        db.session.execute(text('SELECT 1'))
-        
-        current_app.logger.info("2. Attempting to fetch ordered niches...")
+        current_app.logger.info("1. Fetching ordered niches...")
         niches = Niche.get_ordered()
-        current_app.logger.info(f"3. Found {len(niches) if niches else 0} niches")
+        current_app.logger.info(f"2. Found {len(niches) if niches else 0} niches")
         
-        current_app.logger.info("4. Converting niches to dict...")
+        current_app.logger.info("3. Converting niches to dict...")
         result = [niche.to_dict() for niche in niches]
-        current_app.logger.info("5. Successfully converted niches")
+        current_app.logger.info("4. Successfully converted niches")
         current_app.logger.info(f"Niche details: {result}")
         
         return jsonify(result)
@@ -94,8 +91,8 @@ def update_niche(niche_id):
             if not data['name'] or not data['name'].strip():
                 return jsonify({'error': 'Niche name cannot be empty'}), 400
             niche.name = data['name']
-        if 'display_order' in data:
-            niche.display_order = data['display_order']
+        if 'order' in data:
+            niche.order = data['order']
             
         db.session.commit()
         return jsonify(niche.to_dict())
@@ -109,25 +106,31 @@ def update_niche(niche_id):
 
 @niche_bp.route('/<niche_id>', methods=['DELETE'])
 def delete_niche(niche_id):
-    """Delete niche"""
+    """Delete niche and reassign its profiles to the first available niche"""
     try:
         niche = db.session.get(Niche, niche_id)
         if not niche:
             return jsonify({'error': 'Niche not found'}), 404
-        
-        # First, delete any batches associated with this niche
+
+        # First reassign profiles to the first available niche
+        if not reassign_profiles(niche_id):
+            return jsonify({'error': 'Failed to reassign profiles'}), 500
+
+        # Then delete any batches associated with this niche
         from models.batch import Batch
         batches = Batch.query.filter_by(niche_id=niche_id).all()
         for batch in batches:
             db.session.delete(batch)
         
-        # Now delete the niche
+        # Finally delete the niche
         db.session.delete(niche)
         db.session.commit()
         
         return '', 204
         
     except Exception as e:
+        current_app.logger.error(f"Error deleting niche: {str(e)}")
+        current_app.logger.exception("Exception details:")
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 

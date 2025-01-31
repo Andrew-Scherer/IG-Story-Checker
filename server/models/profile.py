@@ -5,7 +5,7 @@ Represents an Instagram profile in the system
 
 from datetime import datetime, UTC
 import uuid
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, Boolean, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import relationship
 from .base import BaseModel
@@ -32,12 +32,12 @@ class Profile(BaseModel):
     # Tracking fields
     total_checks = Column(Integer, default=0, nullable=False)
     total_detections = Column(Integer, default=0, nullable=False)
-    last_checked = Column(DateTime, nullable=True)
-    last_detected = Column(DateTime, nullable=True)
+    last_checked = Column(DateTime(timezone=True), nullable=True)
+    last_detected = Column(DateTime(timezone=True), nullable=True)
     
     # Timestamps
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     # Relationships
     niche = relationship("Niche", back_populates="profiles")
@@ -60,6 +60,25 @@ class Profile(BaseModel):
             
         if status not in self.VALID_STATUSES:
             raise ValueError(f"Invalid status. Must be one of: {', '.join(self.VALID_STATUSES)}")
+        
+        # Normalize username by converting to lowercase and replacing dots with underscores
+        normalized_username = username.lower().replace('.', '_')
+        
+        # Check if a profile with this normalized username already exists
+        from sqlalchemy import select
+        from extensions import db
+        existing = db.session.execute(
+            select(Profile).where(
+                text("REPLACE(LOWER(username), '.', '_') = :username")
+            ).params(username=normalized_username)
+        ).scalar()
+        
+        if existing:
+            raise IntegrityError(
+                f"Profile with similar username already exists: {existing.username}",
+                None,
+                None
+            )
             
         self.id = str(uuid.uuid4())
         self.username = username

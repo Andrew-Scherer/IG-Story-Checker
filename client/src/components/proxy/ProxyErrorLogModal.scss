@@ -1,0 +1,72 @@
+.proxy-error-log-modal {
+  padding: 20px;
+  min-width: 800px;
+  max-height: 600px;
+  overflow-y: auto;
+
+  .loading {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+  }
+
+  .no-logs {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+  }
+
+  .log-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+
+    th {
+      background-color: #f5f5f5;
+      font-weight: 600;
+    }
+
+    tr.state-change {
+      background-color: #fff3f3;
+    }
+
+    tr:hover {
+      background-color: #f8f8f8;
+    }
+  }
+
+  .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    margin-top: 20px;
+
+    button {
+      padding: 8px 16px;
+      border: 1px solid #ddd;
+      background-color: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+
+      &:disabled {
+        background-color: #f5f5f5;
+        cursor: not-allowed;
+      }
+
+      &:hover:not(:disabled) {
+        background-color: #f0f0f0;
+      }
+    }
+
+    span {
+      color: #666;
+    }
+  }
+}

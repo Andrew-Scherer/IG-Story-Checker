@@ -13,6 +13,13 @@ class BaseConfig:
     
     # Database
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 10,
+        'max_overflow': 20,
+        'pool_timeout': 30,
+        'pool_recycle': 1800,  # Recycle connections after 30 minutes
+        'pool_pre_ping': True  # Enable connection health checks
+    }
     
     # JWT Settings
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt-secret-key')
@@ -34,6 +41,15 @@ class BaseConfig:
     # Background Tasks
     SCHEDULER_API_ENABLED = True
     SCHEDULER_TIMEZONE = 'UTC'
+
+    # CORS Settings
+    CORS_SETTINGS = {
+        'origins': None,  # Set by environment configs
+        'allow_headers': ["Content-Type", "Authorization"],
+        'expose_headers': ["Content-Type", "Authorization"],
+        'supports_credentials': True,
+        'max_age': 600  # 10 minutes
+    }
 
 class DevelopmentConfig(BaseConfig):
     """Development configuration"""
@@ -60,7 +76,14 @@ class DevelopmentConfig(BaseConfig):
         self.SQLALCHEMY_DATABASE_URI = uri
     
     # Development-specific settings
-    CORS_ORIGINS = ['http://localhost:3000']
+    CORS_SETTINGS = {
+        'origins': ['http://localhost:3000', 'http://127.0.0.1:3000'],
+        'allow_headers': ["Content-Type", "Authorization"],
+        'expose_headers': ["Content-Type", "Authorization"],
+        'supports_credentials': True,
+        'methods': ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        'max_age': 600
+    }
     PROXY_TEST_TIMEOUT = 5
 
 class TestingConfig(BaseConfig):
@@ -81,6 +104,10 @@ class TestingConfig(BaseConfig):
     # Testing-specific settings
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=5)
     STORY_RESULT_RETENTION_HOURS = 1
+    CORS_SETTINGS = {
+        **BaseConfig.CORS_SETTINGS,
+        'origins': ['http://localhost:3000', 'http://127.0.0.1:3000']
+    }
 
 class ProductionConfig(BaseConfig):
     """Production configuration"""
@@ -95,7 +122,10 @@ class ProductionConfig(BaseConfig):
     REMEMBER_COOKIE_HTTPONLY = True
     
     # Production-specific settings
-    CORS_ORIGINS = os.getenv('ALLOWED_ORIGINS', '').split(',')
+    CORS_SETTINGS = {
+        **BaseConfig.CORS_SETTINGS,
+        'origins': os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
+    }
     PROXY_TEST_TIMEOUT = 10
     
     # Override these in environment variables

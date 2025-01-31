@@ -4,7 +4,7 @@ Represents a category for organizing profiles
 """
 
 import uuid
-from sqlalchemy import Column, String, Integer, UniqueConstraint, select, event
+from sqlalchemy import Column, String, Integer, UniqueConstraint, select, event, func
 from sqlalchemy.orm import relationship, reconstructor
 from sqlalchemy.exc import IntegrityError
 from .base import BaseModel, db
@@ -58,26 +58,45 @@ class Niche(BaseModel):
         self._update_timestamp()
 
     @classmethod
-    def reorder(cls, niche_ids):
-        """Reorder niches based on list of IDs.
+    def get_ordered(cls, session=None):
+        """Get all niches with profile counts in a single query.
         
         Args:
-            niche_ids (list): List of niche IDs in desired order
-        """
-        for index, niche_id in enumerate(niche_ids):
-            niche = db.session.get(cls, niche_id)
-            if niche:
-                niche.order = index
-
-    @classmethod
-    def get_ordered(cls):
-        """Get all niches in display order.
+            session: SQLAlchemy session to use (optional)
+                    If not provided, uses the default db.session
         
         Returns:
-            list: Niches ordered by display_order
+            list: Niches ordered by display_order with profile counts
         """
-        stmt = select(cls).order_by(cls.order.asc())
-        return db.session.execute(stmt).scalars().all()
+        from models.profile import Profile
+        session = session or db.session
+        
+        # Create subquery to count profiles per niche
+        profile_counts = (
+            session.query(
+                Profile.niche_id,
+                func.count(Profile.id).label('profile_count')
+            )
+            .group_by(Profile.niche_id)
+            .subquery()
+        )
+        
+        # Join with profile counts in main query
+        results = (
+            session.query(
+                cls,
+                func.coalesce(profile_counts.c.profile_count, 0).label('_profile_count')
+            )
+            .outerjoin(profile_counts, cls.id == profile_counts.c.niche_id)
+            .order_by(cls.order.asc())
+            .all()
+        )
+        
+        # Attach counts to niche objects
+        for niche, count in results:
+            niche._profile_count = count
+            
+        return [niche for niche, _ in results]
 
     def to_dict(self):
         """Convert niche to dictionary.
@@ -90,6 +109,7 @@ class Niche(BaseModel):
             'name': self.name,
             'order': self.order,
             'daily_story_target': self.daily_story_target,
+            'profile_count': getattr(self, '_profile_count', 0),  # Use cached count
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

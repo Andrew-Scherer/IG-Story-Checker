@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, current_app
 from flask_cors import CORS
 
 # Add the server directory to Python path
@@ -51,6 +51,15 @@ def create_app(config_object=None):
     app.logger = logger
     logger.info("[OK] Flask app instance created")
 
+    # Add request logging
+    @app.before_request
+    def log_request_info():
+        logger.info('=== New Request ===')
+        logger.info(f'Headers: {dict(request.headers)}')
+        logger.info(f'Method: {request.method}')
+        logger.info(f'URL: {request.url}')
+        logger.info(f'Data: {request.get_data()}')
+
     # Register error handlers
     @app.errorhandler(Exception)
     def handle_error(error):
@@ -89,28 +98,25 @@ def create_app(config_object=None):
     print(f"TESTING: {app.config.get('TESTING')}")
     print(f"FLASK_ENV: {os.getenv('FLASK_ENV')}\n")
 
-    # Initialize extensions with proper CORS configuration
-    logger.info("=== Initializing Extensions ===")
-    cors = CORS(app, resources={
-        r"/api/*": {
-            "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
-            "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-            "expose_headers": ["Content-Type", "Authorization"]
-        }
-    })
-    
-    @app.after_request
-    def after_request(response):
-        origin = request.headers.get('Origin')
-        if origin in ["http://localhost:3000", "http://127.0.0.1:3000"]:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        return response
+    # Initialize CORS with settings from config
+    logger.info("=== Initializing CORS ===")
+    cors_settings = app.config.get('CORS_SETTINGS', {})
+    CORS(app, **cors_settings)
     logger.info("[OK] CORS initialized")
+    
+    # Initialize database with debug logging
     db.init_app(app)
+    with app.app_context():
+        try:
+            # Test database connection
+            db.engine.connect()
+            logger.info("[OK] Database connection test successful")
+            # Log database configuration
+            logger.info(f"Database URL: {app.config['SQLALCHEMY_DATABASE_URI']}")
+            logger.info(f"Database options: {app.config['SQLALCHEMY_ENGINE_OPTIONS']}")
+        except Exception as e:
+            logger.error(f"[ERROR] Database connection failed: {str(e)}")
+            raise
     logger.info("[OK] Database initialized")
 
     # Register API blueprints
@@ -130,4 +136,27 @@ if __name__ == '__main__':
     app = create_app()
 
     # Run the application
-    app.run(port=5000, debug=True)  # Enable debug mode to show error tracebacks
+    try:
+        print("\n=== Starting Flask Server ===")
+        print(f"Host: 0.0.0.0")
+        print(f"Port: 5000")
+        print(f"Debug: True")
+        print(f"Environment: {os.getenv('FLASK_ENV', 'development')}")
+        print(f"Database URL: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
+        print("=== Server Configuration ===")
+        print(f"CORS Origins: {app.config.get('CORS_SETTINGS', {}).get('origins', ['http://localhost:3000'])}")
+        print("=== Starting Server ===\n")
+        
+        app.run(
+            host='0.0.0.0',
+            port=5000,
+            debug=True,
+            use_reloader=True,
+            threaded=True
+        )
+    except Exception as e:
+        print(f"\n!!! Error starting server !!!")
+        print(f"Error: {str(e)}")
+        print("Stack trace:")
+        import traceback
+        traceback.print_exc()

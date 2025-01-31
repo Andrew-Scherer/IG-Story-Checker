@@ -18,6 +18,9 @@ export const proxyStore = create((set, get) => ({
   proxies: [],
   loading: false,
   error: null,
+  errorLogs: [],
+  totalLogs: 0,
+  loadingLogs: false,
   rotationSettings: {
     enabled: false,
     interval: 60, // minutes
@@ -55,6 +58,34 @@ export const proxyStore = create((set, get) => ({
       });
       throw apiError;
     }
+  },
+
+  // Error Log Management
+  fetchProxyErrorLogs: async (proxyId, limit = 20, offset = 0) => {
+    try {
+      set({ loadingLogs: true });
+      const response = await proxies.getErrorLogs(proxyId, limit, offset);
+      set({
+        errorLogs: response.logs,
+        totalLogs: response.total,
+        loadingLogs: false
+      });
+    } catch (error) {
+      console.error('Failed to fetch error logs:', error);
+      set({
+        errorLogs: [],
+        totalLogs: 0,
+        loadingLogs: false,
+        error: new ApiError(error.response || error)
+      });
+    }
+  },
+
+  clearErrorLogs: () => {
+    set({
+      errorLogs: [],
+      totalLogs: 0
+    });
   },
 
   // Proxy Management
@@ -121,18 +152,18 @@ export const proxyStore = create((set, get) => ({
       const response = await proxies.updateStatus(proxyId, { status });
       console.log('Status updated successfully');
 
-set((state) => ({
-  proxies: state.proxies.map(proxy =>
-    proxy.id === proxyId
-      ? {
-          ...proxy,
-          status: response.status,
-          is_active: response.status === 'active'
-        }
-      : proxy
-  ),
-  loading: false
-}));
+      set((state) => ({
+        proxies: state.proxies.map(proxy =>
+          proxy.id === proxyId
+            ? {
+                ...proxy,
+                status: response.status,
+                is_active: response.status === 'active'
+              }
+            : proxy
+        ),
+        loading: false
+      }));
     } catch (error) {
       console.error('Failed to update status:', error.response?.data || error);
       const apiError = new ApiError(error.response || error);
