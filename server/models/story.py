@@ -10,6 +10,7 @@ from .base import BaseModel, db
 class StoryResult(BaseModel):
     """Story detection result model"""
     __tablename__ = 'story_results'
+    __table_args__ = {'extend_existing': True}
 
     # Primary key
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

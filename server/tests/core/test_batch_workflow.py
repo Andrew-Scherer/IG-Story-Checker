@@ -12,7 +12,8 @@ import pytest
 import asyncio
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, patch
-from server.models import db, Profile, Batch, Niche, Proxy, Session, ProxyStatus
+from server.models import db, Profile, Batch, Niche, Proxy, Session
+from server.models.proxy import ProxyStatus
 from server.core.batch_processor import BatchProcessor
 from server.core.worker.pool import WorkerPool
 from server.services.batch_manager import BatchManager

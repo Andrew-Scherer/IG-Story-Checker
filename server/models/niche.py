@@ -25,9 +25,10 @@ class Niche(BaseModel):
     order = Column(Integer, nullable=False, default=0)
     daily_story_target = Column(Integer, nullable=False, default=10)
 
-    # Ensure name uniqueness
+    # Table arguments
     __table_args__ = (
         UniqueConstraint('name', name='uq_niche_name'),
+        {'extend_existing': True}
     )
 
     # Relationships

@@ -25,7 +25,18 @@ class ProxySession:
         
     @property
     def proxy_url(self) -> str:
-        """Get full proxy URL with auth if available"""
+        """Get full HTTP proxy URL with auth if available (for session manager)"""
+        # Ensure IP does not include protocol prefix
+        ip = self.proxy.ip
+        if ip.startswith('http://') or ip.startswith('socks5://'):
+            ip = ip.split('://')[-1]
+        if self.proxy.username and self.proxy.password:
+            return f"http://{self.proxy.username}:{self.proxy.password}@{ip}:{self.proxy.port}"
+        return f"http://{ip}:{self.proxy.port}"
+
+    @property
+    def socks5_url(self) -> str:
+        """Get full SOCKS5 proxy URL with auth if available (for ProxyConnector)"""
         # Ensure IP does not include protocol prefix
         ip = self.proxy.ip
         if ip.startswith('http://') or ip.startswith('socks5://'):
@@ -56,12 +67,47 @@ def get_available_proxy_session() -> Optional[ProxySession]:
     
     Returns:
         ProxySession if available, None if no valid pairs found
+        
+    Selection criteria:
+    - Must be active and not disabled/rate-limited
+    - Must be under hourly request limit
+    - Must have succeeded before or be new
+    - Ordered by least recently used, lowest request count, fewest errors
     """
-    # Query for active proxy with valid session
-    proxy_session = Proxy.query.filter_by(is_active=True).join(Session).first()
+    # Query for active, non-disabled proxies with valid sessions
+    proxy_session = (
+        Proxy.query
+        .filter(
+            # Must be active
+            Proxy.is_active == True,
+            # Must not be disabled or rate limited
+            Proxy._status.in_([ProxyStatus.ACTIVE.value]),
+            # Must be under rate limit
+            Proxy.requests_this_hour < Proxy.HOURLY_LIMIT,
+            # Must have had recent success or be new
+            (
+                Proxy.last_success.isnot(None) |  # Has succeeded before
+                Proxy.total_requests == 0  # Or is new
+            )
+        )
+        .join(Session)  # Must have valid session
+        .order_by(
+            # Prefer proxies with:
+            Proxy.last_used.asc().nullsfirst(),  # Least recently used first
+            Proxy.requests_this_hour.asc(),  # Lower request count
+            Proxy.error_count.asc()  # Fewer errors
+        )
+        .first()
+    )
+
     if not proxy_session:
-        current_app.logger.warning('No active proxy-session pairs found')
+        current_app.logger.warning('No available proxy-session pairs found')
         return None
         
     proxy, session = proxy_session
+    current_app.logger.info(
+        f'Selected proxy {proxy.ip}:{proxy.port} '
+        f'(requests: {proxy.requests_this_hour}/{proxy.HOURLY_LIMIT}, '
+        f'errors: {proxy.error_count})'
+    )
     return ProxySession(proxy, session)

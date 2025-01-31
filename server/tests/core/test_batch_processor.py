@@ -2,222 +2,162 @@
 Test batch processor core functionality
 """
 
+"""
+Test batch processor core functionality
+Tests the complete flow of batch processing including:
+- Worker pool management
+- Batch state transitions
+- Profile processing
+- Error handling
+"""
+
 import pytest
-import logging
-import sys
-from unittest.mock import Mock, AsyncMock
-from flask import Flask
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, scoped_session
-from models.base import Base
-from models.batch import Batch
-from models.niche import Niche
-from models.profile import Profile
-# from core.batch_processor import process_batch
-# from core.worker import WorkerPool
-
-print("Starting test file execution")
-
-# Set up logging
-logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, force=True)
-logger = logging.getLogger(__name__)
-
-print("Logger initialized")
-logger.info("Logger initialized (log message)")
-
-# Use PostgreSQL for testing
-TEST_DATABASE_URI = 'postgresql://postgres:overwatch23562@localhost/ig_story_checker_test'
-
-logger.info("Defining fixtures and test functions")
-
-@pytest.fixture(scope='session')
-def engine():
-    """Create database engine"""
-    logger.info("Creating database engine")
-    try:
-        engine = create_engine(TEST_DATABASE_URI)
-        logger.info("Database engine created successfully")
-        return engine
-    except Exception as e:
-        logger.error(f"Error creating database engine: {str(e)}")
-        raise
-
-@pytest.fixture(scope='session')
-def tables(engine):
-    """Create all tables for testing"""
-    logger.info("Creating tables")
-    try:
-        Base.metadata.create_all(engine)
-        logger.info("Tables created successfully")
-        yield
-        logger.info("Dropping tables")
-        Base.metadata.drop_all(engine)
-        logger.info("Tables dropped successfully")
-    except Exception as e:
-        logger.error(f"Error in tables fixture: {str(e)}")
-        raise
-
-@pytest.fixture(scope='function')
-def db_session(engine, tables):
-    """Creates a new database session for each test"""
-    logger.info("Creating database session")
-    try:
-        connection = engine.connect()
-        transaction = connection.begin()
-        session_factory = sessionmaker(bind=connection)
-        session = scoped_session(session_factory)
-        logger.info("Database session created successfully")
-        yield session
-        logger.info("Closing database session")
-        session.close()
-        transaction.rollback()
-        connection.close()
-        logger.info("Database session closed successfully")
-    except Exception as e:
-        logger.error(f"Error in db_session fixture: {str(e)}")
-        raise
+from datetime import datetime, UTC
+from unittest.mock import Mock, AsyncMock, patch
+from server.models import Batch, Niche, Profile, Proxy, Session
+from server.models.proxy import ProxyStatus
+from server.core.batch_processor import BatchProcessor, process_batches
+from server.core.worker.pool import WorkerPool
 
 @pytest.fixture
-def app(engine, db_session):
-    """Create a Flask application for testing"""
-    logger.info("Creating Flask application")
-    try:
-        app = Flask(__name__)
-        app.config['TESTING'] = True
-        app.config['SQLALCHEMY_DATABASE_URI'] = TEST_DATABASE_URI
-        app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-        
-        from extensions import db
-        db.init_app(app)
-        
-        with app.app_context():
-            db.session = db_session
-            logger.info("Flask application created successfully")
-            yield app
-    except Exception as e:
-        logger.error(f"Error in app fixture: {str(e)}")
-        raise
+def mock_worker():
+    """Create a mock worker for testing"""
+    worker = Mock()
+    worker.check_story = AsyncMock()
+    worker.is_disabled = False
+    worker.is_rate_limited = False
+    return worker
 
-def test_basic():
-    """A basic test case"""
-    logger.info("Starting basic test")
-    assert True
-    logger.info("Basic test completed")
+@pytest.fixture
+def mock_worker_pool():
+    """Create a mock worker pool for testing"""
+    pool = Mock(spec=WorkerPool)
+    pool.get_worker = Mock()
+    pool.release_worker = AsyncMock()
+    pool.add_proxies = Mock()
+    return pool
 
-def test_with_app(app):
-    """Test using app fixture"""
-    logger.info("Starting test_with_app")
-    try:
-        assert app is not None
-        assert app.testing
-        assert app.config['SQLALCHEMY_DATABASE_URI'] == TEST_DATABASE_URI
-        logger.info("App checks passed")
-    except Exception as e:
-        logger.error(f"An error occurred in test_with_app: {str(e)}")
-        raise
-    logger.info("test_with_app completed successfully")
+@pytest.mark.asyncio
+async def test_should_complete_batch_successfully(app, db_session, mock_worker, mock_worker_pool, test_batch):
+    """Test that batch is completed successfully when all profiles are processed"""
+    # Arrange
+    mock_worker.check_story.return_value = (True, True)  # success, has_story
+    mock_worker_pool.get_worker.return_value = mock_worker
+    
+    # Act
+    processor = BatchProcessor(db_session, mock_worker_pool)
+    await processor._process_batch_async(test_batch.id, mock_worker_pool)
+    
+    # Assert
+    batch = db_session.get(Batch, test_batch.id)
+    assert batch.status == 'done'
+    assert batch.position is None
+    assert batch.completed_at is not None
+    assert batch.successful_checks == 1
+    assert batch.failed_checks == 0
+    mock_worker_pool.get_worker.assert_called_once()
+    mock_worker_pool.release_worker.assert_called_once_with(mock_worker)
 
-def test_with_db(db_session):
-    """Test using db_session fixture"""
-    logger.info("Starting test_with_db")
-    try:
-        assert db_session is not None
-        result = db_session.execute(text("SELECT 1")).scalar()
-        assert result == 1
-        logger.info("Database session check passed")
-    except Exception as e:
-        logger.error(f"An error occurred in test_with_db: {str(e)}")
-        raise
-    logger.info("test_with_db completed successfully")
+@pytest.mark.asyncio
+async def test_should_handle_story_check_error(app, db_session, mock_worker, mock_worker_pool, test_batch):
+    """Test that batch handles story check errors appropriately"""
+    # Arrange
+    mock_worker.check_story.side_effect = Exception("Test error")
+    mock_worker_pool.get_worker.return_value = mock_worker
+    
+    # Act
+    processor = BatchProcessor(db_session, mock_worker_pool)
+    await processor._process_batch_async(test_batch.id, mock_worker_pool)
+    
+    # Assert
+    batch = db_session.get(Batch, test_batch.id)
+    assert batch.status == 'error'
+    assert batch.position is None
+    assert batch.error is not None
+    assert batch.successful_checks == 0
+    assert batch.failed_checks == 1
 
-import time
-from sqlalchemy import event, text
-from sqlalchemy.exc import SQLAlchemyError
+@pytest.mark.asyncio
+async def test_should_pause_batch_when_no_workers(app, db_session, mock_worker_pool, test_batch):
+    """Test that batch is paused when no workers are available"""
+    # Arrange
+    mock_worker_pool.get_worker.return_value = None
+    
+    # Act
+    processor = BatchProcessor(db_session, mock_worker_pool)
+    await processor._process_batch_async(test_batch.id, mock_worker_pool)
+    
+    # Assert
+    batch = db_session.get(Batch, test_batch.id)
+    assert batch.status == 'paused'
+    assert batch.position is None
+    assert batch.error is not None
 
-def test_create_niche(db_session):
-    """Test creating a simple Niche object"""
-    print("Starting test_create_niche")
-    logger.info("Starting test_create_niche (log message)")
+@pytest.mark.asyncio
+async def test_should_promote_next_batch_when_queue_available(app, db_session, mock_worker_pool, test_batch):
+    """Test that next batch in queue is promoted when available"""
+    # Arrange
+    test_batch.status = 'queued'
+    test_batch.position = 1
+    db_session.commit()
+    
+    mock_worker = Mock()
+    mock_worker.check_story = AsyncMock(return_value=(True, True))
+    mock_worker.is_disabled = False
+    mock_worker.is_rate_limited = False
+    mock_worker_pool.get_worker.return_value = mock_worker
+    
+    # Act
+    with app.app_context():
+        await process_batches(db_session, mock_worker_pool)
+    
+    # Assert
+    db_session.refresh(test_batch)
+    assert test_batch.status == 'done'
+    assert test_batch.position is None
+    assert test_batch.completed_at is not None
 
-    # Add event listeners for commit operations
-    @event.listens_for(db_session, "before_commit")
-    def before_commit(session):
-        print("Before commit")
-        logger.info("Before commit")
-
-    @event.listens_for(db_session, "after_commit")
-    def after_commit(session):
-        print("After commit")
-        logger.info("After commit")
-
-    try:
-        # Check database connection
-        print("Checking database connection")
-        try:
-            result = db_session.execute(text("SELECT 1")).scalar()
-            print(f"Database connection check result: {result}")
-            logger.info(f"Database connection check result: {result}")
-        except Exception as e:
-            print(f"Database connection check failed: {str(e)}")
-            logger.error(f"Database connection check failed: {str(e)}")
-            raise
-
-        print("Creating Niche object")
-        niche = Niche(name="Test Niche")
-        print("Niche object created")
-        
-        print("Adding Niche to session")
-        db_session.add(niche)
-        print("Niche added to session")
-        
-        print("Committing session")
-        start_time = time.time()
-        commit_timeout = 10  # 10 seconds timeout
-
-        while time.time() - start_time < commit_timeout:
-            try:
-                db_session.commit()
-                print("Session committed successfully")
-                logger.info("Session committed successfully")
-                break
-            except SQLAlchemyError as e:
-                print(f"Commit failed: {str(e)}")
-                logger.error(f"Commit failed: {str(e)}")
-                db_session.rollback()
-                time.sleep(0.5)  # Wait for 0.5 seconds before retrying
-        else:
-            error_msg = "Commit operation timed out"
-            print(error_msg)
-            logger.error(error_msg)
-            raise TimeoutError(error_msg)
-
-        print(f"Niche created with id: {niche.id}")
-        
-        # Verify the niche was created
-        print("Fetching Niche from database")
-        fetched_niche = db_session.query(Niche).filter_by(id=niche.id).first()
-        print("Niche fetched from database")
-        
-        assert fetched_niche is not None, "Niche not found in database"
-        assert fetched_niche.name == "Test Niche", f"Expected name 'Test Niche', got '{fetched_niche.name}'"
-        
-        print("test_create_niche completed successfully")
-        logger.info("test_create_niche completed successfully")
-    except Exception as e:
-        print(f"Error in test_create_niche: {str(e)}")
-        logger.error(f"Error in test_create_niche: {str(e)}")
-        raise
-    finally:
-        # Remove event listeners
-        event.remove(db_session, "before_commit", before_commit)
-        event.remove(db_session, "after_commit", after_commit)
-
-logger.info("All test functions defined")
-
-if __name__ == "__main__":
-    logger.info("Running pytest directly")
-    pytest.main([__file__, '-v'])
-else:
-    logger.info("test_batch_processor.py imported as a module")
-
-print("Test file execution completed")
+@pytest.mark.real_db
+@pytest.mark.asyncio
+async def test_should_process_batch_with_real_proxy(app, db_session, test_batch):
+    """Test batch processing with real proxy and session"""
+    # Arrange
+    proxy = Proxy(
+        ip="127.0.0.1",
+        port=8080,
+        username="testuser",
+        password="testpass",
+        is_active=True,
+        status=ProxyStatus.ACTIVE
+    )
+    db_session.add(proxy)
+    db_session.commit()
+    
+    session = Session(
+        proxy_id=proxy.id,
+        session="test_session",
+        status=Session.STATUS_ACTIVE
+    )
+    db_session.add(session)
+    db_session.commit()
+    
+    # Act
+    with patch('server.core.story_checker.StoryChecker.check_story') as mock_check_story:
+        mock_check_story.return_value = True
+        worker_pool = WorkerPool(5)
+        worker_pool.add_proxies([proxy])
+        processor = BatchProcessor(db_session, worker_pool)
+        await processor._process_batch_async(test_batch.id, worker_pool)
+    
+    # Assert
+    batch = db_session.get(Batch, test_batch.id)
+    assert batch.status == 'done'
+    assert batch.position is None
+    assert batch.completed_at is not None
+    assert batch.successful_checks == 1
+    assert batch.failed_checks == 0
+    
+    proxy = db_session.get(Proxy, proxy.id)
+    assert proxy.total_requests == 1
+    assert proxy.failed_requests == 0
+    assert proxy.last_used is not None

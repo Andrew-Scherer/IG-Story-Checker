@@ -60,6 +60,7 @@ class Proxy(BaseModel):
     # Unique constraint for ip+port combination
     __table_args__ = (
         UniqueConstraint('ip', 'port', name='uix_proxy_ip_port'),
+        {'extend_existing': True}
     )
     
     def __str__(self):

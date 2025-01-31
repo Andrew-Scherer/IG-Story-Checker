@@ -89,6 +89,7 @@ class DevelopmentConfig(BaseConfig):
 class TestingConfig(BaseConfig):
     """Testing configuration"""
     TESTING = True
+    DEBUG = True  # Enable debug mode for better error tracebacks
     SERVER_NAME = 'localhost:5000'
     SQLALCHEMY_DATABASE_URI = os.getenv(
         'TEST_DATABASE_URL',

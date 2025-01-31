@@ -1,11 +1,29 @@
 import { create } from 'zustand';
 import { batches } from '../api';
 
+// Simple, clear states that match the server
+const BATCH_STATES = {
+  QUEUED: 'queued',    // In queue with position > 0
+  RUNNING: 'running',  // Currently processing (position = 0)
+  PAUSED: 'paused',    // Stopped (position = null)
+  DONE: 'done'        // Completed (position = null)
+};
+
+// Basic error types
+const BATCH_ERRORS = {
+  ALREADY_RUNNING: 'Batch is already running',
+  INVALID_STATE: 'Invalid batch state for operation',
+  NETWORK_ERROR: 'Network error occurred'
+};
+
 const useBatchStore = create((set, get) => ({
   // State
   batches: [],
   loading: false,
   error: null,
+  batchLogs: [],
+  totalLogs: 0,
+  loadingLogs: false,
 
   // Actions
   fetchBatches: async () => {
@@ -15,16 +33,15 @@ const useBatchStore = create((set, get) => ({
       set({ batches: response, loading: false });
     } catch (error) {
       console.error('Failed to fetch batches:', error);
-      set({ error: error.message, loading: false });
+      set({ error: BATCH_ERRORS.NETWORK_ERROR, loading: false });
     }
   },
 
   createBatch: async (profileIds, nicheId) => {
     try {
       set({ error: null });
-      const response = await batches.create({ profile_ids: profileIds, niche_id: nicheId });
+      await batches.create({ profile_ids: profileIds, niche_id: nicheId });
       await get().fetchBatches();
-      return response;
     } catch (error) {
       console.error('Failed to create batch:', error);
       set({ error: error.message });
@@ -35,15 +52,12 @@ const useBatchStore = create((set, get) => ({
   startBatches: async (batchIds) => {
     try {
       set({ error: null });
-      // Ensure batch IDs are strings
       const cleanIds = batchIds.map(id => String(id).trim());
-      console.log('Sending start request for batch IDs:', cleanIds);
-      const response = await batches.start({ batch_ids: cleanIds });
-      console.log('Received response from start request:', response);
+      await batches.start({ batch_ids: cleanIds });
       await get().fetchBatches();
     } catch (error) {
       console.error('Failed to start batches:', error);
-      set({ error: error.message });
+      set({ error: error.response?.status === 409 ? BATCH_ERRORS.ALREADY_RUNNING : BATCH_ERRORS.NETWORK_ERROR });
       throw error;
     }
   },
@@ -51,26 +65,12 @@ const useBatchStore = create((set, get) => ({
   resumeBatches: async (batchIds) => {
     try {
       set({ error: null });
-      // Ensure batch IDs are strings
       const cleanIds = batchIds.map(id => String(id).trim());
-      console.log('Sending resume request for batch IDs:', cleanIds);
-      const response = await batches.resume({ batch_ids: cleanIds });
-      console.log('Received response from resume request:', response);
-      
-      // Update store with preserved state from response
-      const currentBatches = get().batches;
-      const updatedBatches = currentBatches.map(batch => {
-        const resumedBatch = response.find(r => r.id === batch.id);
-        return resumedBatch || batch;
-      });
-      set({ batches: updatedBatches });
-      
-      // Single delayed fetch to sync any changes
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await batches.resume({ batch_ids: cleanIds });
       await get().fetchBatches();
     } catch (error) {
       console.error('Failed to resume batches:', error);
-      set({ error: error.message });
+      set({ error: error.response?.status === 409 ? BATCH_ERRORS.ALREADY_RUNNING : BATCH_ERRORS.NETWORK_ERROR });
       throw error;
     }
   },
@@ -78,25 +78,12 @@ const useBatchStore = create((set, get) => ({
   stopBatches: async (batchIds) => {
     try {
       set({ error: null });
-      // Ensure batch IDs are strings
       const cleanIds = batchIds.map(id => String(id).trim());
-      // Stop batches and use response to update store immediately
-      const response = await batches.stop({ batch_ids: cleanIds });
-      
-      // Update store with preserved state from response
-      const currentBatches = get().batches;
-      const updatedBatches = currentBatches.map(batch => {
-        const stoppedBatch = response.find(b => b.id === batch.id);
-        return stoppedBatch || batch;
-      });
-      set({ batches: updatedBatches });
-      
-      // Single fetch to sync any changes
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await batches.stop({ batch_ids: cleanIds });
       await get().fetchBatches();
     } catch (error) {
       console.error('Failed to stop batches:', error);
-      set({ error: error.message });
+      set({ error: BATCH_ERRORS.NETWORK_ERROR });
       throw error;
     }
   },
@@ -104,13 +91,25 @@ const useBatchStore = create((set, get) => ({
   deleteBatches: async (batchIds) => {
     try {
       set({ error: null });
-      // Ensure batch IDs are strings
       const cleanIds = batchIds.map(id => String(id).trim());
       await batches.delete({ batch_ids: cleanIds });
       await get().fetchBatches();
     } catch (error) {
       console.error('Failed to delete batches:', error);
-      set({ error: error.message });
+      set({ error: BATCH_ERRORS.NETWORK_ERROR });
+      throw error;
+    }
+  },
+
+  refreshBatches: async (batchIds) => {
+    try {
+      set({ error: null });
+      const cleanIds = batchIds.map(id => String(id).trim());
+      await batches.refresh({ batch_ids: cleanIds });
+      await get().fetchBatches();
+    } catch (error) {
+      console.error('Failed to refresh batches:', error);
+      set({ error: BATCH_ERRORS.NETWORK_ERROR });
       throw error;
     }
   },
@@ -123,15 +122,13 @@ const useBatchStore = create((set, get) => ({
       return response;
     } catch (error) {
       console.error('Failed to fetch batch logs:', error);
-      set({ error: error.message, loadingLogs: false });
+      set({ error: BATCH_ERRORS.NETWORK_ERROR, loadingLogs: false });
       throw error;
     }
   },
 
   setError: (errorMessage) => set({ error: errorMessage }),
-
   clearError: () => set({ error: null }),
-
   clearBatchLogs: () => set({ batchLogs: [], totalLogs: 0 })
 }));
 

@@ -1,5 +1,6 @@
 from .base import db
 from .batch import Batch, BatchProfile
+from .batch_log import BatchLog
 from .niche import Niche
 from .profile import Profile
 from .proxy import Proxy, ProxyStatus
@@ -12,6 +13,7 @@ __all__ = [
     'db',
     'Batch',
     'BatchProfile',
+    'BatchLog',
     'Niche',
     'Profile',
     'Proxy',

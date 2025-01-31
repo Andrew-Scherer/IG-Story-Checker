@@ -8,6 +8,7 @@ from .base import BaseModel, db
 class SystemSettings(BaseModel):
     """System-wide settings model"""
     __tablename__ = 'system_settings'
+    __table_args__ = {'extend_existing': True}
 
     # Primary key (only one record)
     id = db.Column(db.Integer, primary_key=True, default=1)

@@ -38,15 +38,41 @@ class WorkerPool:
         Args:
             proxies: List of Proxy objects
         """
-        current_app.logger.info('Adding proxies to the pool')
+        current_app.logger.info('=== Adding proxies to the pool ===')
         for proxy in proxies:
-            session = Session.query.filter_by(proxy_id=proxy.id).first()
-            if session:
+            try:
+                current_app.logger.info(f'Processing proxy {proxy.ip}:{proxy.port}')
+                
+                # Verify proxy is active
+                if not proxy.is_active:
+                    current_app.logger.warning(f'Skipping inactive proxy {proxy.ip}:{proxy.port}')
+                    continue
+                
+                # Get associated session
+                session = Session.query.filter_by(proxy_id=proxy.id).first()
+                if not session:
+                    current_app.logger.warning(f'No session found for proxy {proxy.ip}:{proxy.port}, skipping')
+                    continue
+                
+                if not session.is_valid():
+                    current_app.logger.warning(f'Invalid session for proxy {proxy.ip}:{proxy.port}, skipping')
+                    continue
+                
+                # Build http:// URL with auth if available
                 proxy_url = f"http://{proxy.ip}:{proxy.port}"
-                self.proxy_manager.session_manager.add_proxy(proxy_url, session.session)
-                current_app.logger.info(f'Added proxy {proxy_url} with session {session.id}')
-            else:
-                current_app.logger.warning(f'No session found for proxy {proxy.ip}:{proxy.port}, skipping')
+                if proxy.username and proxy.password:
+                    proxy_url = f"http://{proxy.username}:{proxy.password}@{proxy.ip}:{proxy.port}"
+                
+                current_app.logger.debug(f'Adding proxy with URL: {proxy_url}')
+                result = self.proxy_manager.session_manager.add_proxy(proxy_url, session.session)
+                
+                if result is not None:
+                    current_app.logger.info(f'Successfully added proxy {proxy.ip}:{proxy.port} with session {session.id}')
+                else:
+                    current_app.logger.error(f'Failed to add proxy {proxy.ip}:{proxy.port} to session manager')
+                
+            except Exception as e:
+                current_app.logger.error(f'Error adding proxy {proxy.ip}:{proxy.port}: {str(e)}')
 
     PROXY_COOLDOWN = 20  # Seconds between proxy uses
 
@@ -77,7 +103,10 @@ class WorkerPool:
 
             # Get session cookie from session manager
             current_app.logger.info('3. Getting session cookie...')
+            # Build http:// URL with auth if available
             proxy_url = f"http://{proxy.ip}:{proxy.port}"
+            if proxy.username and proxy.password:
+                proxy_url = f"http://{proxy.username}:{proxy.password}@{proxy.ip}:{proxy.port}"
             session_data = self.proxy_manager.session_manager.get_session(proxy_url)
             if not session_data:
                 current_app.logger.error(f'No session data for proxy {proxy.ip}:{proxy.port}')
@@ -91,30 +120,32 @@ class WorkerPool:
                 current_app.logger.error(f'Invalid session for proxy {proxy.ip}:{proxy.port}')
                 return None
 
+            # Create and validate worker
+            current_app.logger.info('5. Creating worker...')
             try:
-                # Create and validate worker
-                current_app.logger.info('5. Creating worker...')
                 worker = Worker(proxy, session)
-
-                # Initial health check
-                current_app.logger.info('6. Performing initial health check...')
-                if worker.is_disabled or worker.is_rate_limited:
-                    current_app.logger.warning(f'Worker created in bad state - disabled: {worker.is_disabled}, rate limited: {worker.is_rate_limited}')
-                    self.proxy_manager.health_monitor.cleanup_proxies()
-                    return None
-
-                # Verify session initialization
-                if not worker.proxy_session.session.is_valid():
-                    current_app.logger.error('Worker created with expired session')
-                    return None
-
-                self.active_workers.append(worker)
-                current_app.logger.info(f'7. Successfully created healthy worker with proxy {proxy.ip}:{proxy.port}')
-                return worker
-
             except Exception as e:
-                current_app.logger.error(f'Worker creation failed: {str(e)}')
+                current_app.logger.error(f'Failed to create worker for proxy {proxy.ip}:{proxy.port}: {str(e)}')
+                # Record error in proxy
+                proxy.error_count = (proxy.error_count or 0) + 1
+                self.db.commit()
                 return None
+
+            # Initial health check
+            current_app.logger.info('6. Performing initial health check...')
+            if worker.is_disabled or worker.is_rate_limited:
+                current_app.logger.warning(f'Worker created in bad state - disabled: {worker.is_disabled}, rate limited: {worker.is_rate_limited}')
+                self.proxy_manager.health_monitor.cleanup_proxies()
+                return None
+
+            # Verify session initialization
+            if not worker.proxy_session.session.is_valid():
+                current_app.logger.error('Worker created with expired session')
+                return None
+
+            self.active_workers.append(worker)
+            current_app.logger.info(f'7. Successfully created healthy worker with proxy {proxy.ip}:{proxy.port}')
+            return worker
 
     async def release_worker(self, worker: Worker) -> None:
         """Return worker to available pool
@@ -143,7 +174,10 @@ class WorkerPool:
 
             # Update last used time
             current_app.logger.info('4. Updating last used time...')
-            proxy_url = f"http://{worker.proxy_session.proxy.ip}:{worker.proxy_session.proxy.port}"
+            proxy = worker.proxy_session.proxy
+            proxy_url = f"http://{proxy.ip}:{proxy.port}"
+            if proxy.username and proxy.password:
+                proxy_url = f"http://{proxy.username}:{proxy.password}@{proxy.ip}:{proxy.port}"
             self.proxy_manager.session_manager.update_last_used(proxy_url)
 
             current_app.logger.info('5. Worker released successfully')

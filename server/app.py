@@ -1,17 +1,16 @@
-# Flask application factory
-
+# Add the server directory to Python path first
 import os
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
-from flask import Flask, jsonify, request, current_app
-from flask_cors import CORS
 
-# Add the server directory to Python path
 server_dir = Path(__file__).resolve().parent
 if str(server_dir) not in sys.path:
     sys.path.insert(0, str(server_dir))
 
+# Flask application factory
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request, current_app
+from flask_cors import CORS
 from extensions import db
 from config.logging_config import setup_component_logging
 
@@ -127,20 +126,47 @@ def create_app(config_object=None):
 
     # Create all tables if they don't exist
     with app.app_context():
-        db.create_all()
-        logger.info("[OK] Database tables created or verified")
+        # Check if tables exist by trying to query one
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        if not inspector.get_table_names():
+            db.create_all()
+            logger.info("[OK] Database tables created")
+        else:
+            logger.info("[OK] Database tables already exist")
 
     return app
 
+import threading
+import asyncio
+from core.batch_processor import process_batches
+
+app = create_app()
+
+def start_batch_processor():
+    with app.app_context():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(batch_processor_loop())
+        finally:
+            loop.close()
+
+async def batch_processor_loop():
+    while True:
+        await process_batches()
+        await asyncio.sleep(5)
+
 if __name__ == '__main__':
-    app = create_app()
+    # Start the batch processor in a separate daemon thread
+    threading.Thread(target=start_batch_processor, daemon=True).start()
 
     # Run the application
     try:
         print("\n=== Starting Flask Server ===")
         print(f"Host: 0.0.0.0")
         print(f"Port: 5000")
-        print(f"Debug: True")
+        print(f"Debug: {app.config.get('DEBUG')}")
         print(f"Environment: {os.getenv('FLASK_ENV', 'development')}")
         print(f"Database URL: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
         print("=== Server Configuration ===")

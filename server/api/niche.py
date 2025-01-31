@@ -8,6 +8,14 @@ from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy.exc import IntegrityError
 from models.niche import Niche
 from extensions import db
+import sys
+from pathlib import Path
+
+# Add server directory to path if needed
+server_dir = Path(__file__).resolve().parent.parent
+if str(server_dir) not in sys.path:
+    sys.path.insert(0, str(server_dir))
+
 from reassign_profiles_to_first_niche import reassign_profiles
 
 # Create blueprint

@@ -39,10 +39,16 @@ class BaseModel(Base):
     - Basic serialization
     """
     __abstract__ = True  # Mark as abstract base class
+
     @declared_attr
     def __tablename__(cls):
         """Generate tablename from class name"""
         return cls.__name__.lower() + 's'
+
+    @declared_attr
+    def __table_args__(cls):
+        """Default table arguments for all models"""
+        return {'extend_existing': True}
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

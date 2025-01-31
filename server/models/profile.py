@@ -51,6 +51,7 @@ class Profile(BaseModel):
         Index('idx_profile_niche', 'niche_id'),
         Index('idx_profile_last_checked', 'last_checked'),
         Index('idx_profile_active_story', 'active_story'),
+        {'extend_existing': True}
     )
 
     def __init__(self, username, url=None, niche=None, niche_id=None, status='active'):

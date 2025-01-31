@@ -71,10 +71,42 @@ server/
 ### Running the Server
 ```bash
 # Start development server
-flask run
+cd server
+python app.py
 
-# With debugger and auto-reload
-FLASK_DEBUG=1 flask run
+# Or using Flask CLI (alternative method)
+flask run
+```
+
+### Import Patterns
+The project follows these import conventions:
+1. Package-level imports for application code:
+   ```python
+   from models import db, User
+   from services import user_service
+   ```
+
+2. Relative imports for intra-package imports:
+   ```python
+   # In __init__.py files
+   from .user import User
+   
+   # In submodules
+   from .base import BaseModel
+   ```
+
+3. Absolute imports with 'server.' prefix for tests:
+   ```python
+   from server.models import db
+   from server.services import user_service
+   ```
+
+### Database Inspection
+SQLAlchemy table inspection is done using the Inspector API:
+```python
+from sqlalchemy import inspect
+inspector = inspect(db.engine)
+table_names = inspector.get_table_names()
 ```
 
 ### Database Management

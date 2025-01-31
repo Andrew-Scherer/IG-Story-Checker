@@ -6,6 +6,7 @@ import uuid
 
 class BatchLog(BaseModel):
     __tablename__ = 'batch_logs'
+    __table_args__ = {'extend_existing': True}
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     batch_id = Column(String(36), ForeignKey('batches.id'), nullable=False)

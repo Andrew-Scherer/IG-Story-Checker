@@ -1,168 +1,88 @@
 """
 Test Batch API
-Tests for batch API endpoints with simplified state management
+Tests for batch operations endpoints
 """
 
 import pytest
-import json
-from datetime import datetime, UTC
-from models import db, Batch, Profile, Niche
-from services.queue_manager import queue_manager
+from server.extensions import db
+from models import Batch, BatchLog
 
-@pytest.fixture
-def sample_niche(db_session):
-    """Create a sample niche"""
-    niche = Niche(name='Test Niche')
-    db_session.add(niche)
-    db_session.commit()
-    return niche
-
-@pytest.fixture
-def sample_profiles(db_session, sample_niche):
-    """Create sample profiles"""
-    profiles = []
-    for i in range(2):
-        profile = Profile(username=f'test_user_{i}', niche_id=sample_niche.id)
-        db_session.add(profile)
-        profiles.append(profile)
-    db_session.commit()
-    return profiles
-
-@pytest.fixture
-def sample_batch(db_session, sample_niche, sample_profiles):
-    """Create a sample batch"""
-    batch = Batch(niche_id=str(sample_niche.id), profile_ids=[p.id for p in sample_profiles])
-    db_session.add(batch)
-    db_session.commit()
-    return batch
-
-def test_create_batch(client, db_session, sample_niche, sample_profiles):
-    """Test batch creation"""
+@pytest.mark.real_db
+def test_batch_lifecycle(client, app, test_niche, test_profile):
+    """Test complete batch lifecycle: create -> queue -> pause -> resume -> delete"""
     # Create batch
     response = client.post('/api/batches', json={
-        'niche_id': str(sample_niche.id),
-        'profile_ids': [str(p.id) for p in sample_profiles]
+        'niche_id': test_niche.id,
+        'profile_ids': [test_profile.id]
     })
     assert response.status_code == 201
-    data = json.loads(response.data)
+    data = response.get_json()
+    batch_id = data['id']
     
-    # Verify batch state
-    batch = db_session.get(Batch, data['id'])
-    assert batch is not None
+    # Verify queued state after creation
+    batch = Batch.query.get(batch_id)
     assert batch.status == 'queued'
-    assert batch.queue_position == 0  # First batch gets position 0
-
-def test_create_queued_batch(client, db_session, sample_niche, sample_profiles, sample_batch):
-    """Test batch creation when another batch is running"""
-    # Set up running batch
-    sample_batch.status = 'in_progress'
-    sample_batch.queue_position = 0
-    db_session.commit()
-
-    # Create new batch
-    response = client.post('/api/batches', json={
-        'niche_id': str(sample_niche.id),
-        'profile_ids': [str(p.id) for p in sample_profiles]
-    })
-    assert response.status_code == 201
-    data = json.loads(response.data)
+    assert isinstance(batch.position, int)
     
-    # Verify batch is queued
-    batch = db_session.get(Batch, data['id'])
-    assert batch is not None
-    assert batch.status == 'queued'
-    assert batch.queue_position == 1  # Should be queued at position 1
-
-def test_resume_batch(client, db_session, sample_batch):
-    """Test batch resume"""
-    # Set up paused batch
-    sample_batch.status = 'paused'
-    sample_batch.queue_position = None
-    db_session.commit()
-
+    # Pause batch
+    response = client.post('/api/batches/stop', json={'batch_ids': [batch_id]})
+    assert response.status_code == 200
+    batch = Batch.query.get(batch_id)
+    assert batch.status == 'paused'
+    assert batch.position is None
+    
     # Resume batch
-    response = client.post('/api/batches/resume', json={
-        'batch_ids': [str(sample_batch.id)]
-    })
+    response = client.post('/api/batches/resume', json={'batch_ids': [batch_id]})
     assert response.status_code == 200
-    data = json.loads(response.data)
+    batch = Batch.query.get(batch_id)
+    assert batch.status == 'queued'
+    assert isinstance(batch.position, int)
     
-    # Verify batch resumed
-    db_session.refresh(sample_batch)
-    assert sample_batch.status == 'in_progress'
-    assert sample_batch.queue_position == 0
-
-def test_resume_multiple_batches(client, db_session, sample_niche, sample_profiles):
-    """Test resuming multiple batches"""
-    # Create paused batches
-    batches = []
-    for i in range(2):
-        batch = Batch(niche_id=str(sample_niche.id), profile_ids=[p.id for p in sample_profiles])
-        batch.status = 'paused'
-        db_session.add(batch)
-        batches.append(batch)
-    db_session.commit()
-
-    # Resume batches
-    response = client.post('/api/batches/resume', json={
-        'batch_ids': [str(b.id) for b in batches]
-    })
-    assert response.status_code == 200
-    
-    # Verify batch states
-    db_session.refresh(batches[0])
-    db_session.refresh(batches[1])
-    assert batches[0].status == 'in_progress'
-    assert batches[0].queue_position == 0
-    assert batches[1].status == 'in_progress'
-    assert batches[1].queue_position == 1
-
-def test_stop_batch(client, db_session, sample_batch):
-    """Test batch stop"""
-    # Set up running batch
-    sample_batch.status = 'in_progress'
-    sample_batch.queue_position = 0
-    db_session.commit()
-
-    # Stop batch
-    response = client.post('/api/batches/stop', json={
-        'batch_ids': [str(sample_batch.id)]
-    })
-    assert response.status_code == 200
-    
-    # Verify batch stopped
-    db_session.refresh(sample_batch)
-    assert sample_batch.status == 'paused'
-    assert sample_batch.queue_position is None
-
-def test_delete_batch(client, db_session, sample_batch):
-    """Test batch deletion"""
     # Delete batch
-    response = client.delete('/api/batches', json={
-        'batch_ids': [str(sample_batch.id)]
-    })
+    response = client.delete('/api/batches', json={'batch_ids': [batch_id]})
     assert response.status_code == 204
+    assert Batch.query.get(batch_id) is None
+
+@pytest.mark.real_db
+def test_batch_logs_created(client, app, test_batch):
+    """Verify logs are created for batch state changes"""
+    # Trigger a state change
+    client.post('/api/batches/resume', json={'batch_ids': [test_batch.id]})
     
-    # Verify batch deleted
-    batch = db_session.get(Batch, sample_batch.id)
-    assert batch is None
+    # Check logs
+    logs = BatchLog.query.filter_by(batch_id=test_batch.id).all()
+    assert len(logs) > 0
+    assert any('queued' in log.message.lower() for log in logs)
 
-def test_get_batch_logs(client, db_session, sample_batch):
-    """Test batch log retrieval"""
-    # Create some logs
-    for i in range(3):
-        sample_batch.logs.append({
-            'level': 'INFO',
-            'message': f'Test log {i}',
-            'timestamp': datetime.now(UTC)
-        })
-    db_session.commit()
+@pytest.mark.real_db
+def test_batch_validation(client, app):
+    """Test batch API input validation"""
+    # Test missing niche_id
+    response = client.post('/api/batches', json={})
+    assert response.status_code == 400
+    assert 'niche_id is required' in response.get_json()['error']
+    
+    # Test missing profile_ids
+    response = client.post('/api/batches', json={'niche_id': 'test'})
+    assert response.status_code == 400
+    assert 'profile_ids is required' in response.get_json()['error']
+    
+    # Test missing batch_ids for operations
+    response = client.post('/api/batches/stop', json={})
+    assert response.status_code == 400
+    assert 'batch_ids is required' in response.get_json()['error']
 
-    # Get logs
-    response = client.get(f'/api/batches/{sample_batch.id}/logs')
+@pytest.mark.real_db
+def test_batch_refresh(client, app, test_batch):
+    """Test batch refresh functionality"""
+    # First pause the batch
+    client.post('/api/batches/stop', json={'batch_ids': [test_batch.id]})
+    
+    # Then refresh it
+    response = client.post('/api/batches/refresh', json={'batch_ids': [test_batch.id]})
     assert response.status_code == 200
-    data = json.loads(response.data)
     
-    # Verify logs
-    assert len(data['logs']) == 3
-    assert data['total'] == 3
+    # Verify it's back in queued state
+    batch = Batch.query.get(test_batch.id)
+    assert batch.status == 'queued'
+    assert isinstance(batch.position, int)

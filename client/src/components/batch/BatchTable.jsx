@@ -6,15 +6,19 @@ import useBatchStore from '../../stores/batchStore';
 import BatchLogModal from './BatchLogModal';
 import './BatchTable.scss';
 
+// Position display helper
+function getPositionDisplay(batch) {
+  if (batch.position === 0) return 'Running';
+  if (batch.position > 0) return `#${batch.position}`;
+  return '-';  // null position
+}
+
 const BatchTable = () => {
   const [selectedBatches, setSelectedBatches] = useState([]);
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [selectedBatchId, setSelectedBatchId] = useState(null);
   const [storiesModalOpen, setStoriesModalOpen] = useState(false);
   const [storiesUsernames, setStoriesUsernames] = useState([]);
-  const [resumingBatches, setResumingBatches] = useState(false);
-  const [startingBatches, setStartingBatches] = useState(false);
-  const [stoppingBatches, setStoppingBatches] = useState(false);
 
   const {
     batches,
@@ -69,13 +73,9 @@ const BatchTable = () => {
           : '-'
     },
     {
-      key: 'queue_position',
+      key: 'position',
       title: 'Queue Position',
-      render: (batch) => {
-        if (batch.status === 'in_progress') return '0 (Running)';
-        if (batch.status === 'queued') return `#${batch.queue_position}`;
-        return '-';
-      }
+      render: (batch) => getPositionDisplay(batch)
     },
     {
       key: 'success_rate',
@@ -117,53 +117,21 @@ const BatchTable = () => {
     }
   };
 
-  const handleStartSelected = async () => {
-    if (selectedBatches.length === 0 || startingBatches) return;
-    try {
-      setStartingBatches(true);
-      await startBatches(selectedBatches);
-    } catch (error) {
-      console.error('Failed to start batches:', error);
-      if (error.response && error.response.status === 409) {
-        const errorData = error.response.data;
-        const runningBatchIds = errorData.running_batch_ids || [];
-        const errorMessage = `Cannot start new batches. Batch${
-          runningBatchIds.length > 1 ? 'es' : ''
-        } ${runningBatchIds.join(', ')} ${
-          runningBatchIds.length > 1 ? 'are' : 'is'
-        } already running.`;
-        useBatchStore.getState().setError(errorMessage);
-      } else {
-        useBatchStore.getState().setError('Failed to start batches. Please try again.');
-      }
-    } finally {
-      setStartingBatches(false);
-    }
-  };
-
   const handleResumeSelected = async () => {
-    if (selectedBatches.length === 0 || resumingBatches) return;
+    if (selectedBatches.length === 0) return;
     try {
-      setResumingBatches(true);
       await resumeBatches(selectedBatches);
     } catch (error) {
       console.error('Failed to resume batches:', error);
-      useBatchStore.getState().setError('Failed to resume batches. Please try again.');
-    } finally {
-      setResumingBatches(false);
     }
   };
 
   const handleStopSelected = async () => {
-    if (selectedBatches.length === 0 || stoppingBatches) return;
+    if (selectedBatches.length === 0) return;
     try {
-      setStoppingBatches(true);
       await stopBatches(selectedBatches);
     } catch (error) {
       console.error('Failed to stop batches:', error);
-      useBatchStore.getState().setError('Failed to stop batches. Please try again.');
-    } finally {
-      setStoppingBatches(false);
     }
   };
 
@@ -176,36 +144,40 @@ const BatchTable = () => {
     setLogModalOpen(false);
     clearBatchLogs();
   };
+const handleStartSelected = async () => {
+  if (selectedBatches.length === 0) return;
+  try {
+    await startBatches(selectedBatches);
+  } catch (error) {
+    console.error('Failed to start batches:', error);
+  }
+};
 
-  // Check if any selected batch is paused
-  const hasSelectedPausedBatches = selectedBatches.length > 0 && 
-    batches.some(batch => selectedBatches.includes(batch.id) && batch.status === 'paused');
+// Check if any selected batch is paused or queued
+const hasSelectedPausedBatches = selectedBatches.length > 0 &&
+  batches.some(batch => selectedBatches.includes(batch.id) && batch.status === 'paused');
 
-  return (
-    <div className="batch-table">
+const hasSelectedQueuedBatches = selectedBatches.length > 0 &&
+  batches.some(batch => selectedBatches.includes(batch.id) && batch.status === 'queued');
+
+return (
+  <div className="batch-table">
       <div className="batch-table__controls">
         <Button onClick={handleDeleteSelected}>Delete Selection</Button>
         {selectedBatches.length > 0 && (
           <>
-            <Button
-              onClick={handleStartSelected}
-              disabled={startingBatches || stoppingBatches}
-            >
-              {startingBatches ? 'Starting...' : 'Start Selected'}
-            </Button>
-            {hasSelectedPausedBatches && (
-              <Button
-                onClick={handleResumeSelected}
-                disabled={resumingBatches || startingBatches || stoppingBatches}
-              >
-                {resumingBatches ? 'Resuming...' : 'Resume Selected'}
+            {hasSelectedQueuedBatches && (
+              <Button onClick={handleStartSelected}>
+                Start Selected
               </Button>
             )}
-            <Button
-              onClick={handleStopSelected}
-              disabled={stoppingBatches || startingBatches}
-            >
-              {stoppingBatches ? 'Stopping...' : 'Stop Selected'}
+            {hasSelectedPausedBatches && (
+              <Button onClick={handleResumeSelected}>
+                Resume Selected
+              </Button>
+            )}
+            <Button onClick={handleStopSelected}>
+              Stop Selected
             </Button>
           </>
         )}

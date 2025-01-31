@@ -10,6 +10,7 @@ class Session(BaseModel):
     """Instagram session model"""
     
     __tablename__ = 'sessions'
+    __table_args__ = {'extend_existing': True}
     
     # Status values
     STATUS_ACTIVE = 'active'
