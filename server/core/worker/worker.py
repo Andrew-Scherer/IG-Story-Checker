@@ -3,7 +3,6 @@ Worker Implementation
 Handles story checking with state management
 """
 
-import asyncio
 from datetime import datetime, UTC
 from typing import Optional, Tuple
 from models.batch import BatchProfile
@@ -13,6 +12,8 @@ from core.story_checker import StoryChecker
 from core.proxy_session import ProxySession
 from .worker_state import WorkerState
 from flask import current_app
+from models.proxy_error_log import ProxyErrorLog
+from extensions import db
 
 class Worker:
     """Worker that performs story checks with state management"""
@@ -39,7 +40,7 @@ class Worker:
     def is_rate_limited(self) -> bool:
         return self.state.is_rate_limited
 
-    async def check_story(self, batch_profile: BatchProfile) -> Tuple[bool, bool]:
+    def check_story(self, batch_profile: BatchProfile) -> Tuple[bool, bool]:
         """Check story for a profile
 
         Args:
@@ -56,7 +57,7 @@ class Worker:
         if not self._pre_check_validations(batch_profile):
             return False, False
 
-        await self._enforce_minimum_interval()
+        self._enforce_minimum_interval()
 
         self.current_profile = batch_profile
         self.last_check = datetime.now(UTC)
@@ -70,7 +71,7 @@ class Worker:
                 return False, False
 
             current_app.logger.info(f'Initiating story check via story_checker for {username}')
-            has_story = await self.story_checker.check_story(username)
+            has_story = self.story_checker.check_story(username)
             current_app.logger.info(f'Story check completed for {username}: has_story={has_story}')
 
             self._process_success_result(batch_profile, has_story)
@@ -80,7 +81,7 @@ class Worker:
             return self._handle_error(batch_profile, e)
 
         finally:
-            await self._cleanup(batch_profile)
+            self._cleanup(batch_profile)
 
     def _pre_check_validations(self, batch_profile: BatchProfile) -> bool:
         """Perform pre-check validations"""
@@ -98,14 +99,16 @@ class Worker:
 
         return True
 
-    async def _enforce_minimum_interval(self):
+    def _enforce_minimum_interval(self):
         """Enforce minimum interval between checks"""
         if self.last_check is not None:
             elapsed = (datetime.now(UTC) - self.last_check).total_seconds()
             if elapsed < 20:
                 wait_time = 20 - elapsed
                 current_app.logger.info(f'Waiting {wait_time} seconds to respect rate limit')
-                await asyncio.sleep(wait_time)
+                # Sleep since we're in a synchronous context
+                import time
+                time.sleep(wait_time)
 
     def _process_success_result(self, batch_profile: BatchProfile, has_story: bool):
         """Process successful story check result"""
@@ -118,6 +121,7 @@ class Worker:
 
         # Calculate response time in milliseconds
         response_time = int((end_time - self.last_check).total_seconds() * 1000)
+        self.response_time = response_time
         self.proxy_session.proxy.record_request(success=True, response_time=response_time)
 
         profile = batch_profile.profile
@@ -134,30 +138,43 @@ class Worker:
 
     def _handle_error(self, batch_profile: BatchProfile, e: Exception) -> Tuple[bool, bool]:
         """Handle errors during story check"""
-        error_msg = f'Error checking story for {batch_profile.profile.username} via proxy {self.proxy_session.proxy_url_safe}: {type(e).__name__} - {str(e)}'
+        # Sanitize error message
+        error_text = str(e).replace('\x00', '')
+        error_msg = f'Error checking story for {batch_profile.profile.username} via proxy {self.proxy_session.proxy_url_safe}: {type(e).__name__} - {error_text}'
         current_app.logger.error(error_msg, exc_info=True)
 
-        is_rate_limit = "Rate limited" in str(e)
+        is_rate_limit = "Rate limited" in error_text
         self.state.record_error(is_rate_limit)
 
         # Record error in proxy
-        self.proxy_session.proxy.record_request(success=False, error_msg=str(e))
+        self.proxy_session.proxy.record_request(success=False, error_msg=error_text)
+
+        # Create and save ProxyErrorLog entry
+        error_log = ProxyErrorLog(
+            proxy_id=self.proxy_session.proxy.id,
+            session_id=self.proxy_session.session.id,
+            error_message=error_msg[:500],  # Truncate if necessary
+            state_change=is_rate_limit,
+            transition_reason='Rate limit detected' if is_rate_limit else 'Error occurred',
+        )
+        db.session.add(error_log)
+        db.session.commit()
 
         batch_profile.status = 'failed'
-        batch_profile.error = error_msg
-        
+        batch_profile.error = error_msg[:500]  # Truncate to fit database field
+
         if is_rate_limit:
             current_app.logger.warning(f'Rate limit detected for {batch_profile.profile.username}, allowing retry')
             self.state.is_rate_limited = True
         else:
             current_app.logger.error(f'Non-rate-limit error for {batch_profile.profile.username}, marking as failed')
-        
+
         return False, False
 
-    async def _cleanup(self, batch_profile: BatchProfile):
+    def _cleanup(self, batch_profile: BatchProfile):
         """Perform cleanup after story check"""
         self.current_profile = None
-        await self.story_checker.cleanup()
+        self.story_checker.cleanup()
         current_app.logger.debug(f'Worker cleanup completed for {batch_profile.profile.username}')
 
     def is_available(self) -> bool:

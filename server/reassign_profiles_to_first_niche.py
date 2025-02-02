@@ -4,10 +4,11 @@ Script to reassign profiles from a deleted niche to the first available niche
 
 import sys
 from sqlalchemy import select
+from flask import Flask
+from config import DevelopmentConfig
 from extensions import db
 from models.niche import Niche
 from models.profile import Profile
-from app import create_app
 
 def reassign_profiles(niche_id_to_delete):
     """

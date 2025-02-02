@@ -14,6 +14,9 @@ from flask_cors import CORS
 from extensions import db
 from config.logging_config import setup_component_logging
 
+# Import Celery
+from celery import Celery
+
 # Ensure we're in the correct directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -40,6 +43,26 @@ if missing_vars:
 # Also check SQLAlchemy URI
 print("SQLALCHEMY_DATABASE_URI:", os.getenv('SQLALCHEMY_DATABASE_URI'))
 
+def make_celery(app):
+    """Create and configure the Celery app."""
+    celery = Celery(
+        app.import_name,
+        backend=app.config.get('result_backend'),
+        broker=app.config.get('broker_url')
+    )
+    celery.conf.update({
+        key: value for key, value in app.config.items()
+        if key in ['broker_url', 'result_backend', 'timezone', 'enable_utc', 'imports']
+    })
+
+    # Enable Flask context within Celery tasks
+    class ContextTask(celery.Task):
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return self.run(*args, **kwargs)
+    celery.Task = ContextTask
+    return celery
+
 def create_app(config_object=None):
     """Create Flask application"""
     # Set up application logging
@@ -49,28 +72,6 @@ def create_app(config_object=None):
     app = Flask(__name__)
     app.logger = logger
     logger.info("[OK] Flask app instance created")
-
-    # Add request logging
-    @app.before_request
-    def log_request_info():
-        logger.info('=== New Request ===')
-        logger.info(f'Headers: {dict(request.headers)}')
-        logger.info(f'Method: {request.method}')
-        logger.info(f'URL: {request.url}')
-        logger.info(f'Data: {request.get_data()}')
-
-    # Register error handlers
-    @app.errorhandler(Exception)
-    def handle_error(error):
-        logger.error(f'Unhandled error: {str(error)}', exc_info=True)
-        if hasattr(error, 'to_dict'):
-            response = error.to_dict()
-        else:
-            response = {'error': str(error)}
-            if app.debug:
-                import traceback
-                response['traceback'] = traceback.format_exc()
-        return jsonify(response), getattr(error, 'code', 500)
 
     # Load config
     logger.info("=== Loading Configuration ===")
@@ -90,6 +91,29 @@ def create_app(config_object=None):
         app.config.from_object(config_object)
         logger.info("[OK] Loaded config from object")
 
+    # Initialize Celery
+    celery = make_celery(app)
+    app.celery = celery
+
+    # Add request logging
+    @app.before_request
+    def log_request_info():
+        logger.info('=== New Request ===')
+        logger.info(f'Headers: {dict(request.headers)}')
+        logger.info(f'Method: {request.method}')
+        logger.info(f'URL: {request.url}')
+        logger.info(f'Data: {request.get_data()}')
+
+    # Register error handlers
+    @app.errorhandler(Exception)
+    def handle_error(error):
+        logger.error(f'Unhandled error: {str(error)}', exc_info=True)
+        response = {'error': str(error)}
+        if app.debug:
+            import traceback
+            response['traceback'] = traceback.format_exc()
+        return jsonify(response), getattr(error, 'code', 500)
+
     # Print final configuration for debugging
     print("\nFinal configuration:")
     print(f"SQLALCHEMY_DATABASE_URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
@@ -100,9 +124,9 @@ def create_app(config_object=None):
     # Initialize CORS with settings from config
     logger.info("=== Initializing CORS ===")
     cors_settings = app.config.get('CORS_SETTINGS', {})
-    CORS(app, **cors_settings)
+    CORS(app, resources={r"/api/*": cors_settings})
     logger.info("[OK] CORS initialized")
-    
+
     # Initialize database with debug logging
     db.init_app(app)
     with app.app_context():
@@ -112,7 +136,7 @@ def create_app(config_object=None):
             logger.info("[OK] Database connection test successful")
             # Log database configuration
             logger.info(f"Database URL: {app.config['SQLALCHEMY_DATABASE_URI']}")
-            logger.info(f"Database options: {app.config['SQLALCHEMY_ENGINE_OPTIONS']}")
+            logger.info(f"Database options: {app.config.get('SQLALCHEMY_ENGINE_OPTIONS')}")
         except Exception as e:
             logger.error(f"[ERROR] Database connection failed: {str(e)}")
             raise
@@ -137,30 +161,10 @@ def create_app(config_object=None):
 
     return app
 
-import threading
-import asyncio
-from core.batch_processor import process_batches
-
 app = create_app()
-
-def start_batch_processor():
-    with app.app_context():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(batch_processor_loop())
-        finally:
-            loop.close()
-
-async def batch_processor_loop():
-    while True:
-        await process_batches()
-        await asyncio.sleep(5)
+celery = make_celery(app)
 
 if __name__ == '__main__':
-    # Start the batch processor in a separate daemon thread
-    threading.Thread(target=start_batch_processor, daemon=True).start()
-
     # Run the application
     try:
         print("\n=== Starting Flask Server ===")
@@ -172,7 +176,7 @@ if __name__ == '__main__':
         print("=== Server Configuration ===")
         print(f"CORS Origins: {app.config.get('CORS_SETTINGS', {}).get('origins', ['http://localhost:3000'])}")
         print("=== Starting Server ===\n")
-        
+
         app.run(
             host='0.0.0.0',
             port=5000,

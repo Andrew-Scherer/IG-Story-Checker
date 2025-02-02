@@ -1,6 +1,6 @@
 """
 Batch Manager
-Handles batch state and queue management
+Handles batch state, queue management, and concurrency control
 """
 
 from datetime import datetime, UTC
@@ -10,22 +10,24 @@ from services.batch_log_service import BatchLogService
 
 BATCH_STATES = {
     'queued',   # In queue with position > 0
-    'running',  # Currently processing (position = 0)
+    'running',  # Currently processing (position <= max_concurrent_batches)
     'paused',   # Stopped (position = null)
     'done',     # Completed (position = null)
     'error'     # Failed (position = null)
 }
 
 class BatchManager:
-    """Manages batch state and queue operations"""
+    """Manages batch state, queue operations, and concurrency limits"""
 
-    def __init__(self, db_session):
+    def __init__(self, db_session, max_concurrent_batches=2):
         """Initialize BatchManager
         
         Args:
             db_session: Database session for batch operations
+            max_concurrent_batches: Maximum number of batches that can run concurrently
         """
         self.db = db_session
+        self.max_concurrent_batches = max_concurrent_batches
 
     def _get_next_position(self):
         """Get next available queue position"""
@@ -34,11 +36,18 @@ class BatchManager:
             .scalar()
         return (max_pos or 0) + 1
 
-    def _get_running_batch(self):
-        """Get currently running batch"""
+    def _get_running_batches(self):
+        """Get currently running batches"""
         return self.db.query(Batch)\
-            .filter(Batch.position == 0)\
-            .first()
+            .filter(Batch.status == 'running')\
+            .order_by(Batch.position)\
+            .all()
+
+    def _get_running_batch_count(self):
+        """Get count of currently running batches"""
+        return self.db.query(Batch)\
+            .filter(Batch.status == 'running')\
+            .count()
 
     def queue_batch(self, batch_id):
         """Add batch to queue
@@ -70,7 +79,7 @@ class BatchManager:
         return True
 
     def start_batch(self, batch_id):
-        """Start processing a batch
+        """Start processing a batch if concurrency limits allow
         
         Args:
             batch_id: ID of batch to start
@@ -78,9 +87,9 @@ class BatchManager:
         Returns:
             bool: True if started successfully
         """
-        # Check if another batch is running
-        running = self._get_running_batch()
-        if running:
+        # Check concurrency limit
+        running_count = self._get_running_batch_count()
+        if running_count >= self.max_concurrent_batches:
             return False
 
         batch = self.db.get(Batch, batch_id)
@@ -88,16 +97,23 @@ class BatchManager:
             return False
 
         batch.status = 'running'
-        batch.position = 0  # Position 0 means running
+        batch.position = self._get_running_batch_positions() + 1
         batch.error = None
         BatchLogService.create_log(
             batch_id,
             'STATE_CHANGE',
-            'Status changed to running at position 0'
+            f'Status changed to running at position {batch.position}'
         )
         self.reorder_queue()  # Updates positions
         self.db.commit()  # Commit both state change and queue reordering
         return True
+
+    def _get_running_batch_positions(self):
+        """Get the highest position among running batches"""
+        max_pos = self.db.query(func.max(Batch.position))\
+            .filter(Batch.status == 'running')\
+            .scalar()
+        return max_pos or 0
 
     def pause_batch(self, batch_id):
         """Pause a batch
@@ -109,7 +125,7 @@ class BatchManager:
             bool: True if paused successfully
         """
         batch = self.db.get(Batch, batch_id)
-        if not batch or batch.status in ('done', 'error'):
+        if not batch or batch.status == 'done':
             return False
 
         batch.status = 'paused'
@@ -120,7 +136,7 @@ class BatchManager:
             'Status changed to paused'
         )
         self.reorder_queue()  # Updates positions
-        self.db.commit()  # Commit both state change and queue reordering
+        self.db.commit()
         return True
 
     def complete_batch(self, batch_id):
@@ -145,7 +161,7 @@ class BatchManager:
             'Status changed to done'
         )
         self.reorder_queue()  # Updates positions
-        self.db.commit()  # Commit both state change and queue reordering
+        self.db.commit()
         return True
 
     def handle_error(self, batch_id, error_msg):
@@ -171,17 +187,18 @@ class BatchManager:
             error_msg
         )
         self.reorder_queue()  # Updates positions
-        self.db.commit()  # Commit both state change and queue reordering
+        self.db.commit()
         return True
 
     def promote_next_batch(self):
-        """Promote next batch in queue to running
+        """Promote next batch in queue to running if concurrency limits allow
         
         Returns:
             Batch: Promoted batch or None
         """
-        # Check if a batch is already running
-        if self._get_running_batch():
+        # Check concurrency limit
+        running_count = self._get_running_batch_count()
+        if running_count >= self.max_concurrent_batches:
             return None
 
         # Get next batch in queue
@@ -192,12 +209,12 @@ class BatchManager:
 
         if next_batch:
             next_batch.status = 'running'
-            next_batch.position = 0  # Position 0 means running
+            next_batch.position = self._get_running_batch_positions() + 1
             self.db.flush()  # Use self.db instead of db.session
             BatchLogService.create_log(
                 next_batch.id,
                 'STATE_CHANGE',
-                'Status changed to running at position 0'
+                f'Status changed to running at position {next_batch.position}'
             )
             self.reorder_queue()  # Updates positions
             self.db.commit()  # Commit both state change and queue reordering
@@ -208,7 +225,7 @@ class BatchManager:
     def reorder_queue(self):
         """Reorder queue positions to be sequential after state changes
         
-        This is a helper method that updates queue positions but does not commit.
+        This method updates queue positions but does not commit.
         The caller is responsible for committing the transaction.
         """
         # Get all queued batches
@@ -217,17 +234,22 @@ class BatchManager:
             .order_by(Batch.position)\
             .all()
 
-        # Start at position 1 since 0 is reserved for running batch
-        new_position = 1
+        # Get positions of running batches
+        running_positions = set(
+            batch.position for batch in self._get_running_batches()
+        )
+
+        # Start position after running batches
+        new_position = max(running_positions) + 1 if running_positions else 1
+
         for batch in queued_batches:
-            if batch.position != 0:  # Skip running batch
-                batch.position = new_position
-                BatchLogService.create_log(
-                    batch.id,
-                    'QUEUE_UPDATE',
-                    f'Updated queue position to {new_position}'
-                )
-                new_position += 1
+            batch.position = new_position
+            BatchLogService.create_log(
+                batch.id,
+                'QUEUE_UPDATE',
+                f'Updated queue position to {new_position}'
+            )
+            new_position += 1
 
     def update_progress(self, batch_id, completed=0, successful=0, failed=0):
         """Update batch progress
@@ -256,38 +278,71 @@ class BatchManager:
         )
 
         # Auto-complete if all profiles processed
-        if batch.completed_profiles == batch.total_profiles:
+        if batch.completed_profiles >= batch.total_profiles:
             self.complete_batch(batch_id)
         else:
             self.db.commit()
 
         return True
 
-    def reset_batch(self, batch_id):
-        """Reset batch to initial state
+
+    def get_active_batches(self):
+        """Get list of currently active (running) batches
+        
+        Returns:
+            List[Batch]: List of active batch objects
+        """
+        active_batches = self.db.query(Batch)\
+            .filter(Batch.status == 'running')\
+            .order_by(Batch.position)\
+            .all()
+        return active_batches
+
+    def get_next_batch(self):
+        """Get and start the next batch to process if concurrency limits allow
+        
+        Returns:
+            Batch: The next batch if available and under concurrency limit, None otherwise
+        """
+        # Check concurrency limit
+        running_count = self._get_running_batch_count()
+        if running_count >= self.max_concurrent_batches:
+            return None
+
+        # Get next pending batch
+        next_batch = self.db.query(Batch)\
+            .filter(Batch.status == 'queued')\
+            .order_by(Batch.position)\
+            .first()
+
+        if next_batch:
+            self.start_batch(next_batch.id)
+            return next_batch
+
+        return None
+
+    def remove_batch(self, batch_id):
+        """Remove a batch from the queue
         
         Args:
-            batch_id: ID of batch to reset
+            batch_id: ID of batch to remove
             
         Returns:
-            bool: True if reset successfully
+            bool: True if batch removed successfully
         """
         batch = self.db.get(Batch, batch_id)
         if not batch:
             return False
 
-        batch.status = 'queued'
-        batch.position = self._get_next_position()
-        batch.completed_profiles = 0
-        batch.successful_checks = 0
-        batch.failed_checks = 0
-        batch.completed_at = None
-        batch.error = None
-        
-        BatchLogService.create_log(
-            batch_id,
-            'STATE_CHANGE',
-            f'Reset to queued at position {batch.position}'
-        )
-        self.db.commit()
-        return True
+        if batch.status in ('queued', 'running'):
+            batch.status = 'paused'
+            batch.position = None
+            BatchLogService.create_log(
+                batch_id,
+                'STATE_CHANGE',
+                'Batch removed from queue'
+            )
+            self.reorder_queue()
+            self.db.commit()
+            return True
+        return False

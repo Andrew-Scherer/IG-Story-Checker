@@ -181,6 +181,7 @@ def refresh_batches():
         current_app.logger.error(f"Error refreshing batches: {str(e)}")
         return jsonify({'error': 'Failed to refresh batches'}), 500
 
+
 @batch_bp.route('', methods=['DELETE'])
 def delete_batches():
     """Delete selected batches"""

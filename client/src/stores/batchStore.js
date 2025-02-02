@@ -114,6 +114,19 @@ const useBatchStore = create((set, get) => ({
     }
   },
 
+  resetBatches: async (batchIds) => {
+    try {
+      set({ error: null });
+      const cleanIds = batchIds.map(id => String(id).trim());
+      await batches.reset({ batch_ids: cleanIds });
+      await get().fetchBatches();
+    } catch (error) {
+      console.error('Failed to reset batches:', error);
+      set({ error: BATCH_ERRORS.NETWORK_ERROR });
+      throw error;
+    }
+  },
+
   fetchBatchLogs: async (batchId, startTime, endTime, limit = 100, offset = 0) => {
     try {
       set({ error: null, loadingLogs: true });

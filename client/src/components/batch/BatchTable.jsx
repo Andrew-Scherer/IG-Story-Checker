@@ -48,6 +48,15 @@ const BatchTable = () => {
     }
   };
 
+  const handleViewLogs = (batchId) => {
+    setSelectedBatchId(batchId);
+    setLogModalOpen(true);
+  };
+
+  const handleCloseLogModal = () => {
+    setLogModalOpen(false);
+  };
+
   const columns = [
     {
       key: 'niche',
@@ -135,33 +144,25 @@ const BatchTable = () => {
     }
   };
 
-  const handleViewLogs = (batchId) => {
-    setSelectedBatchId(batchId);
-    setLogModalOpen(true);
+  const handleStartSelected = async () => {
+    if (selectedBatches.length === 0) return;
+    try {
+      await startBatches(selectedBatches);
+    } catch (error) {
+      console.error('Failed to start batches:', error);
+    }
   };
 
-  const handleCloseLogModal = () => {
-    setLogModalOpen(false);
-    clearBatchLogs();
-  };
-const handleStartSelected = async () => {
-  if (selectedBatches.length === 0) return;
-  try {
-    await startBatches(selectedBatches);
-  } catch (error) {
-    console.error('Failed to start batches:', error);
-  }
-};
+  // Check if any selected batch is paused or queued
+  const hasSelectedPausedBatches =
+    selectedBatches.length > 0 &&
+    batches.some(batch => selectedBatches.includes(batch.id) && batch.status === 'paused');
+  const hasSelectedQueuedBatches =
+    selectedBatches.length > 0 &&
+    batches.some(batch => selectedBatches.includes(batch.id) && batch.status === 'queued');
 
-// Check if any selected batch is paused or queued
-const hasSelectedPausedBatches = selectedBatches.length > 0 &&
-  batches.some(batch => selectedBatches.includes(batch.id) && batch.status === 'paused');
-
-const hasSelectedQueuedBatches = selectedBatches.length > 0 &&
-  batches.some(batch => selectedBatches.includes(batch.id) && batch.status === 'queued');
-
-return (
-  <div className="batch-table">
+  return (
+    <div className="batch-table">
       <div className="batch-table__controls">
         <Button onClick={handleDeleteSelected}>Delete Selection</Button>
         {selectedBatches.length > 0 && (

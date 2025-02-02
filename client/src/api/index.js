@@ -123,8 +123,9 @@ export const batches = {
   start: (data) => axiosInstance.post('/batches/start', data).then(res => res.data),
   stop: (data) => axiosInstance.post('/batches/stop', data).then(res => res.data),
   resume: (data) => axiosInstance.post('/batches/resume', data).then(res => res.data),
+  reset: (data) => axiosInstance.post('/batches/reset', data).then(res => res.data),
   delete: (data) => axiosInstance.delete('/batches', { data: { batch_ids: data.batch_ids } }).then(res => res.data),
-  getLogs: (batchId, startTime, endTime, limit, offset) => 
+  getLogs: (batchId, startTime, endTime, limit, offset) =>
     axiosInstance.get(`/batches/${batchId}/logs`, { 
       params: { 
         start_time: startTime, 

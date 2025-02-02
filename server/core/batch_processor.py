@@ -1,204 +1,169 @@
 """
 Batch Processor
-Handles batch processing and story checking
+Handles batch processing and story checking using Celery
 """
 
-import asyncio
 from datetime import datetime, UTC
 from typing import Optional
 from flask import current_app
-from models import db, Batch
-from server.core.worker.pool import WorkerPool
-from server.models.proxy import Proxy
-from server.models.session import Session
-from server.services.batch_manager import BatchManager
-from server.services.batch_log_service import BatchLogService
+from extensions import db
+from models import Batch, Proxy, Session
+from services.batch_manager import BatchManager
+from services.batch_log_service import BatchLogService
+from core.worker.worker import Worker
+from core.proxy_session_manager import ProxySessionManager
+from celery import shared_task
 
-class BatchProcessor:
-    """Handles batch processing with worker pool management"""
+@shared_task(bind=True)
+def process_batch(self, batch_id):
+    """Celery task to process a single batch"""
+    app = self.app
+    with app.app_context():
+        batch = db.session.get(Batch, batch_id)
+        if not batch:
+            current_app.logger.error(f"Batch {batch_id} not found")
+            return
 
-    def __init__(self, db_session, worker_pool: Optional[WorkerPool] = None):
-        """Initialize batch processor
-        
-        Args:
-            db_session: Database session
-            worker_pool: Optional WorkerPool instance. If not provided, a new one will be created.
-        """
-        self.db = db_session
-        self.batch_manager = BatchManager(db_session)
-        self.worker_pool = worker_pool or WorkerPool(5)  # Use provided pool or create new one
+        batch_manager = BatchManager(db.session)
+        proxy_manager = ProxySessionManager(db.session)
 
-    async def _process_batch_async(self, batch_id: str, worker_pool: WorkerPool) -> None:
-        """Process a single batch asynchronously
-        
-        Args:
-            batch_id: ID of batch to process
-            worker_pool: Worker pool to use
-        """
         try:
             current_app.logger.info(f'=== Processing Batch {batch_id} ===')
-            batch = self.db.get(Batch, batch_id)
-            if not batch:
-                current_app.logger.error(f'Batch {batch_id} not found')
+            batch_manager.update_status(batch_id, 'processing')
+
+            # Fetch active proxies
+            proxies = Proxy.query.filter_by(is_active=True).all()
+            if not proxies:
+                warning_msg = 'No active proxies available'
+                current_app.logger.warning(warning_msg)
+                BatchLogService.create_log(batch_id, 'BATCH_PAUSED', warning_msg)
+                db.session.commit()
+                batch_manager.pause_batch(batch_id)
                 return
 
-            # Add available proxies to pool
-            current_app.logger.info('1. Adding proxies to worker pool...')
-            proxies = Proxy.query.filter_by(is_active=True).all()
-            worker_pool.add_proxies(proxies)
-
-            # Process each profile
-            current_app.logger.info('2. Processing profiles...')
-            for batch_profile in batch.profiles:
+            # Process each profile in the batch
+            batch_profiles = batch.profiles.all()
+            for batch_profile in batch_profiles:
                 if batch_profile.status == 'completed':
                     continue
 
-                # Get worker with retries
-                current_app.logger.info('3. Getting worker...')
-                retries = 3
-                worker = None
-                
-                for attempt in range(retries):
-                    worker = worker_pool.get_worker()
-                    if worker:
-                        current_app.logger.info(f'Successfully got worker on attempt {attempt + 1}')
-                        break
-                    current_app.logger.warning(f'No worker available on attempt {attempt + 1}/{retries}')
-                    await asyncio.sleep(1)  # Wait before retry
-                
-                if not worker:
-                    warning_msg = (
-                        'No workers available after retries. Possible reasons:\n'
-                        '- No active proxies in database\n'
-                        '- Proxies exist but failed to register with session manager\n'
-                        '- All workers are currently in use'
-                    )
-                    current_app.logger.warning(warning_msg)  # Change from error to warning
-                    
-                    # Log detailed state for debugging
-                    proxies = Proxy.query.filter_by(is_active=True).all()
-                    current_app.logger.warning(f'Active proxies in DB: {len(proxies)}')
-                    for proxy in proxies:
-                        current_app.logger.warning(
-                            f'Proxy {proxy.ip}:{proxy.port} - '
-                            f'Active: {proxy.is_active}, '
-                            f'Status: {proxy.status}, '
-                            f'Sessions: {len(proxy.sessions)}'
-                        )
-
-                    BatchLogService.create_log(batch_id, 'BATCH_PAUSED', warning_msg)  # Change log type
-                    
-                    batch.status = 'paused'  # Correct status for no workers
-                    batch.position = None  # Reset position when pausing
-                    batch.error = warning_msg
-                    self.db.commit()
+                # Assign a proxy and session
+                proxy = proxy_manager.get_next_proxy()
+                if not proxy:
+                    warning_msg = 'No proxies available for profile processing'
+                    current_app.logger.warning(warning_msg)
+                    BatchLogService.create_log(batch_id, 'BATCH_PAUSED', warning_msg)
+                    batch_manager.pause_batch(batch_id)
                     return
-
-                try:
-                    # Check story
-                    current_app.logger.info(f'4. Checking story for {batch_profile.profile.username}...')
-                    success, has_story = await worker.check_story(batch_profile)
-
-                    if success:
-                        current_app.logger.info('5. Story check successful')
-                        batch_profile.status = 'completed'
-                        batch_profile.has_story = has_story
-                        batch_profile.processed_at = datetime.now(UTC)
-                        batch.successful_checks += 1
-                        BatchLogService.create_log(
-                            batch_id,
-                            'PROFILE_CHECK',
-                            f'Successfully checked {batch_profile.profile.username} (has_story={has_story})'
-                        )
-                    else:
-                        current_app.logger.warning('6. Story check failed')
-                        batch_profile.status = 'failed'
-                        batch.failed_checks += 1
-                        self.db.commit()  # Commit the failed_checks increment
-                        BatchLogService.create_log(
-                            batch_id,
-                            'PROFILE_ERROR',
-                            f'Failed to check {batch_profile.profile.username}'
-                        )
-
-                    # Update progress
-                    current_app.logger.info('7. Updating batch progress...')
-                    completed = sum(1 for p in batch.profiles if p.status == 'completed')
-                    successful = sum(1 for p in batch.profiles if p.has_story)
-                    failed = sum(1 for p in batch.profiles if p.status == 'failed')
-                    self.batch_manager.update_progress(
+                else:
+                    BatchLogService.create_log(
                         batch_id,
-                        completed=completed,
-                        successful=successful,
-                        failed=failed
+                        'PROXY_ASSIGNED',
+                        f'Assigned proxy {proxy.ip}:{proxy.port} to profile {batch_profile.profile.username}',
+                        profile_id=batch_profile.profile.id,
+                        proxy_id=proxy.id
                     )
 
-                finally:
-                    # Release worker
-                    current_app.logger.info('8. Releasing worker...')
-                    await worker_pool.release_worker(worker)
+                session = Session.query.filter_by(proxy_id=proxy.id).first()
+                if not session or not session.is_valid():
+                    current_app.logger.warning(f'Invalid session for proxy {proxy.ip}:{proxy.port}')
+                    error_msg = f'Invalid session for proxy {proxy.ip}:{proxy.port} assigned to profile {batch_profile.profile.username}'
+                    BatchLogService.create_log(
+                        batch_id,
+                        'INVALID_SESSION',
+                        error_msg,
+                        profile_id=batch_profile.profile.id,
+                        proxy_id=proxy.id
+                    )
+                    continue
+
+                worker = Worker(proxy, session)
+
+                # Check story
+                current_app.logger.info(f'Checking story for {batch_profile.profile.username}...')
+                success, has_story = worker.check_story(batch_profile)
+
+                if success:
+                    current_app.logger.info('Story check successful')
+                    batch_profile.status = 'completed'
+                    batch_profile.has_story = has_story
+                    batch_profile.processed_at = datetime.now(UTC)
+                    batch.successful_checks += 1
+                    BatchLogService.create_log(
+                        batch_id,
+                        'PROFILE_CHECK',
+                        f'Successfully checked {batch_profile.profile.username} (has_story={has_story})'
+                    )
+                else:
+                    current_app.logger.warning('Story check failed')
+                    batch_profile.status = 'failed'
+                    batch_profile.processed_at = datetime.now(UTC)
+                    batch.failed_checks += 1
+                    error_details = str(batch_profile.error or "Unknown error").replace('\x00', '')
+                    proxy_details = f"{proxy.ip}:{proxy.port}"
+                    error_msg = (
+                        f'Failed to check {batch_profile.profile.username} - '
+                        f'Error: {error_details} - '
+                        f'Proxy: {proxy_details}'
+                    )[:500]
+                    BatchLogService.create_log(
+                        batch_id,
+                        'PROFILE_ERROR',
+                        error_msg,
+                        profile_id=batch_profile.profile.id,
+                        proxy_id=proxy.id
+                    )
+
+                # Update progress
+                current_app.logger.info('Updating batch progress...')
+                completed = sum(1 for p in batch_profiles if p.status in ('completed', 'failed'))
+                successful = sum(1 for p in batch_profiles if p.has_story)
+                failed = sum(1 for p in batch_profiles if p.status == 'failed')
+                batch_manager.update_progress(
+                    batch_id,
+                    completed=completed,
+                    successful=successful,
+                    failed=failed
+                )
+
+                db.session.commit()
 
             # Check if batch is complete
-            # Check if batch is complete
-            if all(p.status in ('completed', 'failed') for p in batch.profiles):
-                current_app.logger.info('9. Batch complete, marking as done')
-                batch.status = 'done'
-                batch.position = None
-                batch.completed_at = datetime.now(UTC)
-                self.db.commit()
-                self.batch_manager.complete_batch(batch_id)
+            if all(p.status in ('completed', 'failed') for p in batch_profiles):
+                current_app.logger.info('Batch complete, marking as done')
+                batch_manager.complete_batch(batch_id)
+            else:
+                current_app.logger.info('Batch processing incomplete')
 
         except Exception as e:
             current_app.logger.error(f'Error processing batch: {str(e)}')
-            batch.failed_checks += 1
-            batch.status = 'error'
-            self.db.commit()
-            BatchLogService.create_log(batch_id, 'BATCH_ERROR', f'Error processing batch: {str(e)}')
-            self.batch_manager.handle_error(batch_id, str(e))
+            db.session.rollback()
+            batch_manager.handle_error(batch_id, str(e))
+            raise self.retry(exc=e, countdown=60)
 
-async def process_batches(db_session=None, worker_pool: Optional[WorkerPool] = None):
-    """Process pending batches
-    
-    Args:
-        db_session: Optional database session. If not provided, uses flask app session.
-        worker_pool: Optional WorkerPool instance. If not provided, creates a new one.
-    """
-    try:
-        # Use provided session or get from flask app
-        session = db_session if db_session is not None else db.session
+def enqueue_batches():
+    """Function to enqueue pending batches"""
+    with current_app.app_context():
+        batch_manager = BatchManager(db.session)
+        pending_batches = batch_manager.get_pending_batches()
 
-        # Get running batch
-        batch_manager = BatchManager(session)
-        running_batch = session.query(Batch).filter(Batch.position == 0).first()
-        
-        if not running_batch:
-            # Try to promote next batch
-            next_batch = batch_manager.promote_next_batch()
-            if not next_batch:
-                return
-            running_batch = next_batch
-            session.refresh(running_batch)  # Refresh to get latest state
+        for batch in pending_batches:
+            current_app.logger.info(f'Enqueuing batch {batch.id}')
+            process_batch.apply_async(args=[batch.id])
 
-        # Process the batch using provided or new worker pool
-        worker_pool = worker_pool or WorkerPool(5)  # Use provided pool or create new one
-        processor = BatchProcessor(session, worker_pool)  # Pass worker_pool to processor
-        await processor._process_batch_async(running_batch.id, worker_pool)
+# Optional: Schedule enqueue_batches to run periodically
+from celery.schedules import crontab
+from app import celery
 
-        # Ensure batch is marked as done
-        batch = session.get(Batch, running_batch.id)
-        if batch:
-            session.refresh(batch)  # Refresh to get latest state
-            session.refresh(batch)  # Refresh to get latest state
-            if batch.status in ('queued', 'running'):  # Check both queued and running states
-                if all(p.status in ('completed', 'failed') for p in batch.profiles):
-                    current_app.logger.info(f'Marking batch {batch.id} as done')
-                    batch.status = 'done'
-                    batch.position = None
-                    batch.completed_at = datetime.now(UTC)
-                    session.commit()
-                    current_app.logger.info(f'Batch {batch.id} marked as done')
+celery.conf.beat_schedule = {
+    'enqueue-batches-every-5-minutes': {
+        'task': 'core.batch_processor.enqueue_batches',
+        'schedule': crontab(minute='*/5'),
+    },
+}
 
-    except Exception as e:
-        current_app.logger.error(f'Error in process_batches: {str(e)}')
-        if running_batch:
-            batch_manager.handle_error(running_batch.id, str(e))
+# Register the task with Celery
+# Removed @celery.on_after_configure.connect decorator to avoid scheduling conflicts
+# def setup_periodic_tasks(sender, **kwargs):
+#     # Calls enqueue_batches every 5 minutes
+#     sender.add_periodic_task(300.0, enqueue_batches.s(), name='Enqueue batches every 5 minutes')

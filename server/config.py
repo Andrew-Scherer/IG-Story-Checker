@@ -37,10 +37,17 @@ class BaseConfig:
     
     # Redis Cache
     REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-    
+
+    # Celery Configuration
+    broker_url = os.getenv('CELERY_BROKER_URL', REDIS_URL)
+    result_backend = os.getenv('CELERY_RESULT_BACKEND', REDIS_URL)
+    timezone = os.getenv('CELERY_TIMEZONE', 'UTC')
+    enable_utc = True
+
     # Background Tasks
     SCHEDULER_API_ENABLED = True
     SCHEDULER_TIMEZONE = 'UTC'
+
 
     # CORS Settings
     CORS_SETTINGS = {

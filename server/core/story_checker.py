@@ -102,12 +102,33 @@ class StoryChecker:
     async def _get_profile(self, url: str, username: str) -> tuple[bool, Optional[str]]:
         """Get user profile information"""
         request_start_time = time.time()
-        async with self.session.get(url) as response:
-            response_status = response.status
-            current_app.logger.info(f'Profile request status for {username}: {response_status}')
-            
-            if not self._validate_response(response_status, 'profile', username):
-                return False, None
+        try:
+            async with self.session.get(url) as response:
+                response_status = response.status
+                current_app.logger.info(f'Profile request status for {username}: {response_status}')
+                
+                if not self._validate_response(response_status, 'profile', username):
+                    return False, None
+        except aiohttp.ClientProxyConnectionError as e:
+            error_msg = (
+                f'Proxy connection error for {username} using {self.proxy_session.proxy_url_safe}\n'
+                f'Error type: {type(e).__name__}\n'
+                f'Error details: {str(e)}\n'
+                f'Raw error: {repr(e)}'
+            )
+            current_app.logger.error(error_msg)
+            self.proxy_session.record_failure()
+            raise Exception(error_msg) from e
+        except Exception as e:
+            error_msg = (
+                f'Request failed for {username} using {self.proxy_session.proxy_url_safe}\n'
+                f'Error type: {type(e).__name__}\n'
+                f'Error details: {str(e)}\n'
+                f'Raw error: {repr(e)}'
+            )
+            current_app.logger.error(error_msg)
+            self.proxy_session.record_failure()
+            raise Exception(error_msg) from e
 
             try:
                 data = await response.json()
@@ -138,12 +159,33 @@ class StoryChecker:
     async def _get_stories(self, url: str, username: str, user_id: str) -> tuple[bool, bool]:
         """Get user stories information"""
         request_start_time = time.time()
-        async with self.session.get(url) as stories_response:
-            stories_status = stories_response.status
-            current_app.logger.info(f'Stories request status for {username}: {stories_status}')
-            
-            if not self._validate_response(stories_status, 'stories', username):
-                return False, False
+        try:
+            async with self.session.get(url) as stories_response:
+                stories_status = stories_response.status
+                current_app.logger.info(f'Stories request status for {username}: {stories_status}')
+                
+                if not self._validate_response(stories_status, 'stories', username):
+                    return False, False
+        except aiohttp.ClientProxyConnectionError as e:
+            error_msg = (
+                f'Proxy connection error during stories fetch for {username} using {self.proxy_session.proxy_url_safe}\n'
+                f'Error type: {type(e).__name__}\n'
+                f'Error details: {str(e)}\n'
+                f'Raw error: {repr(e)}'
+            )
+            current_app.logger.error(error_msg)
+            self.proxy_session.record_failure()
+            raise Exception(error_msg) from e
+        except Exception as e:
+            error_msg = (
+                f'Stories request failed for {username} using {self.proxy_session.proxy_url_safe}\n'
+                f'Error type: {type(e).__name__}\n'
+                f'Error details: {str(e)}\n'
+                f'Raw error: {repr(e)}'
+            )
+            current_app.logger.error(error_msg)
+            self.proxy_session.record_failure()
+            raise Exception(error_msg) from e
 
             try:
                 stories_data = await stories_response.json()
